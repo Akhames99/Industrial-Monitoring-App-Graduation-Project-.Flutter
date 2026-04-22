@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 class AppTheme {
   static final primary = ThemeData(
-    fontFamily: AppFonts.primary,
+    fontFamily: AppFonts.poppins,
     colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
   );
 }

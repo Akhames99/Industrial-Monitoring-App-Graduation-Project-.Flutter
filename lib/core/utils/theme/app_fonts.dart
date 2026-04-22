@@ -1,4 +1,5 @@
 class AppFonts {
-  static const String primary = 'outfit';
-  static const String secondary = 'nunito';
+  static const String outfit = 'outfit';
+  static const String poppins = 'poppins';
+  static const String nunito = 'nunito';
 }

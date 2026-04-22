@@ -8,15 +8,27 @@ environment:
   sdk: ^3.9.2
 
 dependencies:
+  animated_bottom_navigation_bar: ^1.4.0
+  bloc: ^9.2.0
+  cached_network_image: ^3.4.1
   carousel_slider: ^5.1.1
   cupertino_icons: ^1.0.8
+  dio: ^5.9.2
+  equatable: ^2.0.8
   flutter:
     sdk: flutter
+  flutter_bloc: ^9.1.1
+  json_annotation: ^4.11.0
+  lucide_icons_flutter: ^3.1.9
+  persistent_bottom_nav_bar_v2: ^6.2.0
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
+  build_runner: null
   flutter_lints: ^5.0.0
   flutter_test:
     sdk: flutter
+  json_serializable: null
 
 flutter:
   uses-material-design: true
@@ -28,10 +40,19 @@ flutter:
     - family: outfit
       fonts:
         - asset: assets/fonts/outfit/OutfitSemiBold.ttf
+          weight: 800
+        - asset: assets/fonts/outfit/OutfitLight1.ttf
+          weight: 400
     #       - asset: fonts/Schyler-Italic.ttf
     #         style: italic
     - family: nunito
       fonts:
         - asset: assets/fonts/nunito/Nunito-Light.ttf
-  #       - asset: fonts/TrajanPro_Bold.ttf
-  #         weight: 700
+    #       - asset: fonts/TrajanPro_Bold.ttf
+    #         weight: 700
+    - family: poppins
+      fonts:
+        - asset: assets/fonts/poppins/Poppins-Bold.ttf
+          weight: 600
+        - asset: assets/fonts/poppins/Poppins-Medium.ttf
+          weight: 400
