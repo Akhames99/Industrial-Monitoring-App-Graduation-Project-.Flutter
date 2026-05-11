@@ -173,4 +173,45 @@ class QualityLogRepository {
       throw ApiException(message: 'Error sending to dataset: $e');
     }
   }
+
+  // Confirm inspection
+  Future<bool> confirmInspection(String inspectionId) async {
+    try {
+      final endpoint = Endpoints.confirmInspection.replaceAll(
+        '{inspection_id}',
+        inspectionId,
+      );
+      final response = await _apiClient.post(endpoint);
+      return response.statusCode == 200;
+    } catch (e) {
+      if (e is ApiException) {
+        rethrow;
+      }
+      throw ApiException(message: 'Error confirming inspection: $e');
+    }
+  }
+
+  // Edit inspection
+  Future<bool> editInspection(
+    String inspectionId, {
+    required String status,
+    required String defectCategory,
+  }) async {
+    try {
+      final endpoint = Endpoints.editInspection.replaceAll(
+        '{inspection_id}',
+        inspectionId,
+      );
+      final response = await _apiClient.put(
+        endpoint,
+        data: {'status': status, 'defect_category': defectCategory},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      if (e is ApiException) {
+        rethrow;
+      }
+      throw ApiException(message: 'Error editing inspection: $e');
+    }
+  }
 }

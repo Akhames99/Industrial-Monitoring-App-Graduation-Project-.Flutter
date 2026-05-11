@@ -6,7 +6,7 @@ import 'package:app/features/quality%20log/repositories/quality_log_repository.d
 // Enums
 enum QualityItemStatus { pending, reviewed }
 
-enum QualityItemType { cracks, scratch, label, dents, misalignment }
+enum QualityItemType { broken, skratch, label, good }
 
 class QualityItem {
   final String id;
@@ -18,6 +18,7 @@ class QualityItem {
   final DateTime createdAt;
   final String? actionTaken; // e.g., "Defection Confirmed", "Label updated"
   final String? actionType; // e.g., "confirmed", "updated", "relabeled"
+  final bool isConfirmed;
 
   QualityItem({
     required this.id,
@@ -29,6 +30,7 @@ class QualityItem {
     required this.createdAt,
     this.actionTaken,
     this.actionType,
+    this.isConfirmed = false,
   });
 
   // Copy constructor
@@ -42,6 +44,7 @@ class QualityItem {
     DateTime? createdAt,
     String? actionTaken,
     String? actionType,
+    bool? isConfirmed,
   }) {
     return QualityItem(
       id: id ?? this.id,
@@ -53,6 +56,7 @@ class QualityItem {
       createdAt: createdAt ?? this.createdAt,
       actionTaken: actionTaken ?? this.actionTaken,
       actionType: actionType ?? this.actionType,
+      isConfirmed: isConfirmed ?? this.isConfirmed,
     );
   }
 
@@ -62,7 +66,10 @@ class QualityItem {
       id: json['id'] ?? json['user_id']?.toString() ?? '',
       title: json['title'] ?? '',
       type: _parseType(json['type']),
-      status: _parseStatus(json['status']),
+      status: _parseStatus(
+        json['status'],
+        json['isConfirmed'] ?? json['is_confirmed'] ?? false,
+      ),
       confidenceScore:
           (json['confidenceScore'] ?? json['confidence_score'] ?? 0).toDouble(),
       imageUrl: json['imageUrl'] ?? json['image_url'],
@@ -71,6 +78,7 @@ class QualityItem {
       ),
       actionTaken: json['actionTaken'] ?? json['action_taken'],
       actionType: json['actionType'],
+      isConfirmed: json['isConfirmed'] ?? json['is_confirmed'] ?? false,
     );
   }
 
@@ -80,11 +88,12 @@ class QualityItem {
       id: response.id,
       title: response.title,
       type: _parseType(response.type),
-      status: _parseStatus(response.status),
+      status: _parseStatus(response.status, response.isConfirmed),
       confidenceScore: response.confidenceScore,
       imageUrl: response.imageUrl,
       createdAt: response.createdAt,
       actionTaken: response.actionTaken,
+      isConfirmed: response.isConfirmed,
     );
   }
 
@@ -100,34 +109,37 @@ class QualityItem {
       'createdAt': createdAt.toIso8601String(),
       'actionTaken': actionTaken,
       'actionType': actionType,
+      'is_confirmed': isConfirmed,
     };
   }
 
   static QualityItemType _parseType(dynamic value) {
     if (value is String) {
       switch (value.toLowerCase()) {
-        case 'scratch':
-          return QualityItemType.scratch;
+        case 'broken':
+          return QualityItemType.broken;
+        case 'skratch':
+          return QualityItemType.skratch;
         case 'label':
           return QualityItemType.label;
-        case 'dents':
-          return QualityItemType.dents;
-        case 'misalignment':
-          return QualityItemType.misalignment;
+        case 'good':
+          return QualityItemType.good;
         default:
-          return QualityItemType.cracks;
+          return QualityItemType.broken;
       }
     }
-    return QualityItemType.cracks;
+    return QualityItemType.broken;
   }
 
-  static QualityItemStatus _parseStatus(dynamic value) {
+  static QualityItemStatus _parseStatus(
+    dynamic value, [
+    bool isConfirmed = false,
+  ]) {
+    if (isConfirmed) return QualityItemStatus.reviewed;
     if (value is String) {
-      switch (value.toLowerCase()) {
-        case 'reviewed':
-          return QualityItemStatus.reviewed;
-        default:
-          return QualityItemStatus.pending;
+      final val = value.toLowerCase();
+      if (val == 'reviewed' || val == 'defected' || val == 'good') {
+        return QualityItemStatus.reviewed;
       }
     }
     return QualityItemStatus.pending;
@@ -268,12 +280,40 @@ class QualityLogService {
     }
   }
 
-  static List<QualityItem> _generateMockData() {
+  // Confirm inspection (sets is_confirmed to true)
+  Future<bool> confirmInspection(String inspectionId) async {
+    try {
+      return await _repository.confirmInspection(inspectionId);
+    } catch (e) {
+      debugPrint('Error confirming inspection: $e');
+      return false;
+    }
+  }
+
+  // Edit inspection (status and defect category)
+  Future<bool> editInspection(
+    String inspectionId, {
+    required String status,
+    required String defectCategory,
+  }) async {
+    try {
+      return await _repository.editInspection(
+        inspectionId,
+        status: status,
+        defectCategory: defectCategory,
+      );
+    } catch (e) {
+      debugPrint('Error editing inspection: $e');
+      return false;
+    }
+  }
+
+  static List<QualityItem> generateMockData() {
     return [
       QualityItem(
         id: '1',
-        title: 'Cracks',
-        type: QualityItemType.cracks,
+        title: 'Broken',
+        type: QualityItemType.broken,
         status: QualityItemStatus.reviewed,
         confidenceScore: 30,
         createdAt: DateTime.now().subtract(const Duration(minutes: 5)),
@@ -282,8 +322,8 @@ class QualityLogService {
       ),
       QualityItem(
         id: '2',
-        title: 'Scratch',
-        type: QualityItemType.scratch,
+        title: 'Skratch',
+        type: QualityItemType.skratch,
         status: QualityItemStatus.pending,
         confidenceScore: 85,
         createdAt: DateTime.now().subtract(const Duration(minutes: 10)),
@@ -300,24 +340,24 @@ class QualityLogService {
       ),
       QualityItem(
         id: '4',
-        title: 'Cracks',
-        type: QualityItemType.cracks,
+        title: 'Broken',
+        type: QualityItemType.broken,
         status: QualityItemStatus.pending,
         confidenceScore: 95,
         createdAt: DateTime.now().subtract(const Duration(minutes: 20)),
       ),
       QualityItem(
         id: '5',
-        title: 'Dents',
-        type: QualityItemType.dents,
+        title: 'Broken',
+        type: QualityItemType.broken,
         status: QualityItemStatus.pending,
         confidenceScore: 60,
         createdAt: DateTime.now().subtract(const Duration(minutes: 25)),
       ),
       QualityItem(
         id: '6',
-        title: 'Misalignment',
-        type: QualityItemType.misalignment,
+        title: 'Skratch',
+        type: QualityItemType.skratch,
         status: QualityItemStatus.reviewed,
         confidenceScore: 45,
         createdAt: DateTime.now().subtract(const Duration(minutes: 30)),
@@ -326,16 +366,16 @@ class QualityLogService {
       ),
       QualityItem(
         id: '7',
-        title: 'Scratch',
-        type: QualityItemType.scratch,
+        title: 'Skratch',
+        type: QualityItemType.skratch,
         status: QualityItemStatus.pending,
         confidenceScore: 75,
         createdAt: DateTime.now().subtract(const Duration(minutes: 35)),
       ),
       QualityItem(
         id: '8',
-        title: 'Cracks',
-        type: QualityItemType.cracks,
+        title: 'Broken',
+        type: QualityItemType.broken,
         status: QualityItemStatus.pending,
         confidenceScore: 88,
         createdAt: DateTime.now().subtract(const Duration(minutes: 40)),
@@ -350,24 +390,24 @@ class QualityLogService {
       ),
       QualityItem(
         id: '10',
-        title: 'Scratch',
-        type: QualityItemType.scratch,
+        title: 'Skratch',
+        type: QualityItemType.skratch,
         status: QualityItemStatus.pending,
         confidenceScore: 65,
         createdAt: DateTime.now().subtract(const Duration(minutes: 50)),
       ),
       QualityItem(
         id: '11',
-        title: 'Cracks',
-        type: QualityItemType.cracks,
+        title: 'Broken',
+        type: QualityItemType.broken,
         status: QualityItemStatus.reviewed,
         confidenceScore: 78,
         createdAt: DateTime.now().subtract(const Duration(minutes: 55)),
       ),
       QualityItem(
         id: '12',
-        title: 'Dents',
-        type: QualityItemType.dents,
+        title: 'Broken',
+        type: QualityItemType.broken,
         status: QualityItemStatus.pending,
         confidenceScore: 82,
         createdAt: DateTime.now().subtract(const Duration(minutes: 60)),
@@ -380,31 +420,27 @@ class QualityLogService {
 extension QualityItemTypeExtension on QualityItemType {
   String get displayName {
     switch (this) {
-      case QualityItemType.cracks:
-        return 'Cracks';
-      case QualityItemType.scratch:
-        return 'Scratch';
+      case QualityItemType.broken:
+        return 'Broken';
+      case QualityItemType.skratch:
+        return 'Skratch';
       case QualityItemType.label:
         return 'Label';
-      case QualityItemType.dents:
-        return 'Dents';
-      case QualityItemType.misalignment:
-        return 'Misalignment';
+      case QualityItemType.good:
+        return 'Good';
     }
   }
 
   Color get color {
     switch (this) {
-      case QualityItemType.cracks:
+      case QualityItemType.broken:
         return const Color(0xFF1A1A2E); // Dark
-      case QualityItemType.scratch:
+      case QualityItemType.skratch:
         return const Color(0xFF9B59B6); // Purple
       case QualityItemType.label:
         return const Color(0xFFE67E22); // Orange
-      case QualityItemType.dents:
-        return const Color(0xFF3498DB); // Blue
-      case QualityItemType.misalignment:
-        return const Color(0xFFE74C3C); // Red
+      case QualityItemType.good:
+        return Colors.green; // Green for Good
     }
   }
 }
@@ -422,7 +458,7 @@ extension QualityItemStatusExtension on QualityItemStatus {
   Color get badgeColor {
     switch (this) {
       case QualityItemStatus.pending:
-        return const Color(0xFFFDB913); // Yellow/Orange
+        return const Color(0xFFFEF5E7); // Yellow/Orange
       case QualityItemStatus.reviewed:
         return const Color(0xFFE8E8E8); // Gray
     }
@@ -431,7 +467,7 @@ extension QualityItemStatusExtension on QualityItemStatus {
   Color get badgeTextColor {
     switch (this) {
       case QualityItemStatus.pending:
-        return const Color(0xFFD68910);
+        return Color(0xffF59E0B);
       case QualityItemStatus.reviewed:
         return const Color(0xFF666666);
     }

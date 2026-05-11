@@ -150,6 +150,40 @@ Map<String, dynamic> _$AlertResponseToJson(AlertResponse instance) =>
       'is_acknowledged': instance.isAcknowledged,
     };
 
+ActiveSessionResponse _$ActiveSessionResponseFromJson(
+  Map<String, dynamic> json,
+) => ActiveSessionResponse(
+  isActive: json['is_running'] as bool,
+  startTime: json['start_time'] == null
+      ? null
+      : DateTime.parse(json['start_time'] as String),
+);
+
+Map<String, dynamic> _$ActiveSessionResponseToJson(
+  ActiveSessionResponse instance,
+) => <String, dynamic>{
+  'is_running': instance.isActive,
+  'start_time': instance.startTime?.toIso8601String(),
+};
+
+SessionResponse _$SessionResponseFromJson(Map<String, dynamic> json) =>
+    SessionResponse(
+      id: (json['id'] as num).toInt(),
+      startTime: DateTime.parse(json['start_time'] as String),
+      stopTime: json['end_time'] == null
+          ? null
+          : DateTime.parse(json['end_time'] as String),
+      userId: (json['user_id'] as num?)?.toInt(),
+    );
+
+Map<String, dynamic> _$SessionResponseToJson(SessionResponse instance) =>
+    <String, dynamic>{
+      'id': instance.id,
+      'start_time': instance.startTime.toIso8601String(),
+      'end_time': instance.stopTime?.toIso8601String(),
+      'user_id': instance.userId,
+    };
+
 MachineStatusResponse _$MachineStatusResponseFromJson(
   Map<String, dynamic> json,
 ) => MachineStatusResponse(
@@ -178,7 +212,7 @@ Map<String, dynamic> _$MachineStatusResponseToJson(
 
 QualityItemResponse _$QualityItemResponseFromJson(Map<String, dynamic> json) =>
     QualityItemResponse(
-      id: json['id'] as String,
+      id: QualityItemResponse._idFromJson(json['id']),
       title: json['title'] as String,
       type: json['type'] as String,
       status: json['status'] as String,
@@ -186,6 +220,8 @@ QualityItemResponse _$QualityItemResponseFromJson(Map<String, dynamic> json) =>
       imageUrl: json['image_url'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
       actionTaken: json['action_taken'] as String?,
+      isConfirmed: json['is_confirmed'] as bool,
+      defectCategory: json['defect_category'] as String?,
     );
 
 Map<String, dynamic> _$QualityItemResponseToJson(
@@ -199,6 +235,8 @@ Map<String, dynamic> _$QualityItemResponseToJson(
   'image_url': instance.imageUrl,
   'created_at': instance.createdAt.toIso8601String(),
   'action_taken': instance.actionTaken,
+  'is_confirmed': instance.isConfirmed,
+  'defect_category': instance.defectCategory,
 };
 
 QualityItemsListResponse _$QualityItemsListResponseFromJson(

@@ -14,6 +14,7 @@ dependencies:
   carousel_slider: ^5.1.1
   cupertino_icons: ^1.0.8
   dio: ^5.9.2
+  intl: ^0.20.2
   equatable: ^2.0.8
   flutter:
     sdk: flutter

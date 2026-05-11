@@ -65,33 +65,63 @@ class _QualityLogPageState extends State<QualityLogPage> {
   }
 
   // Handle Relabel Action
-  void _handleRelabel(String itemId) {
-    debugPrint('Relabel called for item: $itemId');
-    // TODO: Call API to relabel item
-    _updateItemStatus(itemId, QualityItemStatus.reviewed);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Item relabeled successfully'),
-        backgroundColor: Colors.green[600],
-        duration: const Duration(seconds: 2),
-      ),
+  void _handleRelabel(String itemId, String newLabel) async {
+    debugPrint('Relabel called for item: $itemId with label: $newLabel');
+    final success = await QualityLogService().editInspection(
+      itemId,
+      status: newLabel == 'Good' ? 'Good' : 'Defected',
+      defectCategory: newLabel == 'Good' ? '' : newLabel,
     );
+
+    if (success) {
+      _updateItemStatus(itemId, QualityItemStatus.reviewed);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Item relabeled to $newLabel successfully'),
+            backgroundColor: Colors.green[600],
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to relabel item'),
+            backgroundColor: Colors.red[600],
+          ),
+        );
+      }
+    }
   }
 
   // Handle Confirm Action
-  void _handleConfirm(String itemId) {
+  void _handleConfirm(String itemId) async {
     debugPrint('Confirm called for item: $itemId');
-    // TODO: Call API to confirm defection
-    _updateItemStatus(itemId, QualityItemStatus.reviewed);
+    final success = await QualityLogService().confirmInspection(itemId);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Defection confirmed'),
-        backgroundColor: Colors.blue[600],
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    if (success) {
+      _updateItemStatus(itemId, QualityItemStatus.reviewed, isConfirmed: true);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Defection confirmed'),
+            backgroundColor: Colors.blue[600],
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to confirm defection'),
+            backgroundColor: Colors.red[600],
+          ),
+        );
+      }
+    }
   }
 
   // Handle Dismiss Action
@@ -125,11 +155,18 @@ class _QualityLogPageState extends State<QualityLogPage> {
   }
 
   // Helper: Update item status in local state
-  void _updateItemStatus(String itemId, QualityItemStatus newStatus) {
+  void _updateItemStatus(
+    String itemId,
+    QualityItemStatus newStatus, {
+    bool? isConfirmed,
+  }) {
     if (qualityLogData != null) {
       final updatedItems = qualityLogData!.items.map((item) {
         if (item.id == itemId) {
-          return item.copyWith(status: newStatus);
+          return item.copyWith(
+            status: newStatus,
+            isConfirmed: isConfirmed ?? item.isConfirmed,
+          );
         }
         return item;
       }).toList();
@@ -444,7 +481,7 @@ class QualityItemCard extends StatelessWidget {
   final Function(String)? onDismiss;
   final Function(String)? onConfirm;
   final Function(String)? onSendToDataset;
-  final Function(String)? onRelabel;
+  final Function(String, String)? onRelabel;
 
   const QualityItemCard({
     Key? key,
@@ -736,7 +773,7 @@ class QualityItemCard extends StatelessWidget {
       builder: (context) => RelabelItemModal(
         item: item,
         onRelabel: (newLabel) {
-          onRelabel?.call(item.id);
+          onRelabel?.call(item.id, newLabel);
         },
       ),
     );

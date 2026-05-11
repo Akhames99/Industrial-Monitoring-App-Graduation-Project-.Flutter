@@ -29,6 +29,12 @@ class Endpoints {
 
   // Quality Log
   static const String getQualityData = '/inspections';
+  static const String getQualityDataBySession =
+      '/inspections/session/{session_id}';
+  static const String confirmInspection =
+      '/inspections/{inspection_id}/confirm';
+  static const String editInspection =
+      '/inspections/{inspection_id}/Edit-Inspection';
   static const String qualityItems = '/quality/items';
   static const String qualityDetail = '/quality/items/{id}';
   static const String confirmDefection = '/quality/confirm';

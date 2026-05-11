@@ -4,14 +4,22 @@ enum HomeStatus { initial, loading, success, failure }
 
 class HomeState extends Equatable {
   final HomeStatus status;
-  final String systemStatus; // 'Running' or 'Idle'
+  final String systemStatus;
   final List<StateSegment> systemSegments;
   final String? errorMessage;
   final bool isSessionLoading;
   final DateTime? sessionStartTime;
   final DateTime? sessionEndTime;
+  final ProductionYieldResponse? productionYield;
+  final DefectionResponse? defectionData;
+  final String? selectedSessionId;
 
-  const HomeState({
+  // History fields
+  final List<SessionResponse> allSessions;
+  final List<StateSegment> historySegments;
+  final DateTime selectedHistoryDate;
+
+  HomeState({
     this.status = HomeStatus.initial,
     this.systemStatus = 'Idle',
     this.systemSegments = const [],
@@ -19,7 +27,13 @@ class HomeState extends Equatable {
     this.isSessionLoading = false,
     this.sessionStartTime,
     this.sessionEndTime,
-  });
+    this.productionYield,
+    this.defectionData,
+    this.selectedSessionId,
+    this.allSessions = const [],
+    this.historySegments = const [],
+    DateTime? selectedHistoryDate,
+  }) : selectedHistoryDate = selectedHistoryDate ?? DateTime.now();
 
   HomeState copyWith({
     HomeStatus? status,
@@ -29,6 +43,12 @@ class HomeState extends Equatable {
     bool? isSessionLoading,
     DateTime? sessionStartTime,
     DateTime? sessionEndTime,
+    List<SessionResponse>? allSessions,
+    List<StateSegment>? historySegments,
+    DateTime? selectedHistoryDate,
+    ProductionYieldResponse? productionYield,
+    DefectionResponse? defectionData,
+    String? selectedSessionId,
   }) {
     return HomeState(
       status: status ?? this.status,
@@ -38,6 +58,12 @@ class HomeState extends Equatable {
       isSessionLoading: isSessionLoading ?? this.isSessionLoading,
       sessionStartTime: sessionStartTime ?? this.sessionStartTime,
       sessionEndTime: sessionEndTime ?? this.sessionEndTime,
+      allSessions: allSessions ?? this.allSessions,
+      historySegments: historySegments ?? this.historySegments,
+      selectedHistoryDate: selectedHistoryDate ?? this.selectedHistoryDate,
+      productionYield: productionYield ?? this.productionYield,
+      defectionData: defectionData ?? this.defectionData,
+      selectedSessionId: selectedSessionId ?? this.selectedSessionId,
     );
   }
 
@@ -50,6 +76,12 @@ class HomeState extends Equatable {
     isSessionLoading,
     sessionStartTime,
     sessionEndTime,
+    allSessions,
+    historySegments,
+    selectedHistoryDate,
+    productionYield,
+    defectionData,
+    selectedSessionId,
   ];
 }
 

@@ -4,8 +4,8 @@ enum SystemState { running, idle }
 
 class StateSegment {
   final SystemState state;
-  final int startHour;
-  final int endHour;
+  final double startHour;
+  final double endHour;
 
   StateSegment({
     required this.state,
@@ -20,6 +20,7 @@ class SystemStateWidget extends StatelessWidget {
   final String currentStatus;
   final VoidCallback? onStartSession;
   final VoidCallback? onStopSession;
+  final VoidCallback? onHistoryPressed;
   final bool isLoading;
   final bool showButtons;
 
@@ -30,6 +31,7 @@ class SystemStateWidget extends StatelessWidget {
     this.currentStatus = 'Running',
     this.onStartSession,
     this.onStopSession,
+    this.onHistoryPressed,
     this.isLoading = false,
     this.showButtons = true,
   }) : super(key: key);
@@ -57,23 +59,40 @@ class SystemStateWidget extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'System State',
-                    style: TextStyle(
-                      fontSize: 20.0,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'System State',
+                          style: TextStyle(
+                            fontSize: 20.0,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        if (onHistoryPressed != null) ...[
+                          const SizedBox(width: 8),
+                          InkWell(
+                            onTap: onHistoryPressed,
+                            child: Icon(
+                              Icons.history_rounded,
+                              size: 20,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                  ),
-                ],
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(

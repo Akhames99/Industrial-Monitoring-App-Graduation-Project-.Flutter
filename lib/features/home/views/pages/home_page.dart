@@ -17,77 +17,62 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  List<StateSegment> systemStateSegments = [];
-  late ProductionYieldData productionYieldData;
-  late DefectionCategorization defectionData;
-  late List<Alert> alertsList;
+  List<StateSegment> systemStateSegments = [
+    StateSegment(state: SystemState.idle, startHour: 0, endHour: 4),
+    StateSegment(state: SystemState.running, startHour: 4, endHour: 10),
+    StateSegment(state: SystemState.idle, startHour: 10, endHour: 12),
+  ];
+  ProductionYieldData productionYieldData = ProductionYieldData(
+    goodProducts: 2160,
+    defectiveProducts: 540,
+    selectedPeriod: 'today',
+    date: DateTime.now(),
+  );
+  DefectionCategorization defectionData = DefectionCategorization(
+    categories: [
+      DefectCategory(
+        name: 'Cracks',
+        count: 261,
+        color: const Color(0xFF1A1A2E),
+      ),
+      DefectCategory(
+        name: 'Scratch',
+        count: 199,
+        color: const Color(0xFF9B59B6),
+      ),
+      DefectCategory(name: 'Labels', count: 80, color: const Color(0xFFE67E22)),
+    ],
+    period: 'today',
+    date: DateTime.now(),
+  );
+  List<Alert> alertsList = [];
 
   @override
   void initState() {
     super.initState();
-    _initializeSystemState();
-    _initializeProductionYield();
-    _initializeDefectionCategorization();
-    _initializeAlerts();
-  }
 
-  void _initializeSystemState() {
-    systemStateSegments = [
-      StateSegment(state: SystemState.idle, startHour: 0, endHour: 4),
-      StateSegment(state: SystemState.running, startHour: 4, endHour: 10),
-      StateSegment(state: SystemState.idle, startHour: 10, endHour: 12),
-    ];
-  }
-
-  void _initializeProductionYield() {
-    productionYieldData = ProductionYieldData(
-      goodProducts: 2160,
-      defectiveProducts: 540,
-      selectedPeriod: 'today',
-      date: DateTime.now(),
-    );
-  }
-
-  void _initializeDefectionCategorization() {
-    defectionData = DefectionCategorization(
-      categories: [
-        DefectCategory(
-          name: 'Cracks',
-          count: 261,
-          color: const Color(0xFF1A1A2E),
-        ),
-        DefectCategory(
-          name: 'Scratch',
-          count: 199,
-          color: const Color(0xFF9B59B6),
-        ),
-        DefectCategory(
-          name: 'Labels',
-          count: 80,
-          color: const Color(0xFFE67E22),
-        ),
-      ],
-      period: 'today',
-      date: DateTime.now(),
-    );
+    // Fetch initial data
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<HomeBloc>().add(HomeFetchData());
+      context.read<HomeBloc>().add(FetchSessionHistory());
+    });
   }
 
   void _onProductionYieldPeriodChanged(String period) {
-    setState(() {
-      productionYieldData = productionYieldData.copyWith(
-        selectedPeriod: period,
-      );
-    });
+    if (period == 'today' ||
+        period == 'this week' ||
+        period == 'this month' ||
+        period == 'this year') {
+      // Handle period if needed, or just clear session
+      context.read<HomeBloc>().add(const ChangeProductionYieldSession(null));
+    } else {
+      // Handle session ID
+      context.read<HomeBloc>().add(ChangeProductionYieldSession(period));
+    }
   }
 
   void _onDefectionPeriodChanged(String period) {
-    setState(() {
-      defectionData = defectionData.copyWith(period: period);
-    });
-  }
-
-  void _initializeAlerts() {
-    alertsList = [];
+    // Similar handling for defection if needed, or just use production yield's session
   }
 
   void _onAlertAcknowledged(String alertId) {
@@ -226,18 +211,70 @@ class _HomePageState extends State<HomePage> {
                         currentStatus: state.systemStatus,
                         isLoading: state.isSessionLoading,
                         showButtons: false,
+                        onHistoryPressed: () => Navigator.pushNamed(
+                          context,
+                          AppRoutes.sessionHistory,
+                        ),
                       );
                     },
                   ),
                   const SizedBox(height: 24.0),
-                  ProductionYieldWidget(
-                    data: productionYieldData,
-                    onPeriodChanged: _onProductionYieldPeriodChanged,
+                  BlocBuilder<HomeBloc, HomeState>(
+                    builder: (context, state) {
+                      final yieldData = state.productionYield != null
+                          ? ProductionYieldData(
+                              goodProducts: state.productionYield!.goodProducts,
+                              defectiveProducts:
+                                  state.productionYield!.defectiveProducts,
+                              selectedPeriod: state.selectedSessionId != null
+                                  ? 'Session ${state.selectedSessionId}'
+                                  : state.productionYield!.period,
+                              date: state.productionYield!.timestamp,
+                            )
+                          : productionYieldData;
+
+                      // Add sessions to available options
+                      final sessionOptions = state.allSessions
+                          .map((s) => s.id.toString())
+                          .toList();
+
+                      return ProductionYieldWidget(
+                        data: yieldData,
+                        onPeriodChanged: _onProductionYieldPeriodChanged,
+                        availableSessions: sessionOptions,
+                      );
+                    },
                   ),
                   const SizedBox(height: 24.0),
-                  DefectionCategorizationWidget(
-                    data: defectionData,
-                    onPeriodChanged: _onDefectionPeriodChanged,
+                  BlocBuilder<HomeBloc, HomeState>(
+                    builder: (context, state) {
+                      final defection = state.defectionData != null
+                          ? DefectionCategorization(
+                              categories: state.defectionData!.categories
+                                  .map(
+                                    (c) => DefectCategory(
+                                      name: c.name,
+                                      count: c.count,
+                                      color: Color(
+                                        int.parse(
+                                          c.color.replaceFirst('#', '0xFF'),
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              period: state.selectedSessionId != null
+                                  ? 'Session ${state.selectedSessionId}'
+                                  : state.defectionData!.period,
+                              date: state.defectionData!.timestamp,
+                            )
+                          : defectionData;
+
+                      return DefectionCategorizationWidget(
+                        data: defection,
+                        onPeriodChanged: _onDefectionPeriodChanged,
+                      );
+                    },
                   ),
                   const SizedBox(height: 24.0),
                   ActiveAlertsWidget(

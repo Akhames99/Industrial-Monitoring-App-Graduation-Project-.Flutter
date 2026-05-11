@@ -6,4 +6,5 @@ class AppRoutes {
   static const String log = '/log';
   static const String fix = '/fix';
   static const String settings = '/settings';
+  static const String sessionHistory = '/session_history';
 }

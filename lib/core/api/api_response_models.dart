@@ -183,21 +183,53 @@ class AlertResponse {
 
 @JsonSerializable()
 class ActiveSessionResponse {
+  @JsonKey(name: 'is_running')
   final bool isActive;
+  @JsonKey(name: 'start_time')
   final DateTime? startTime;
 
   ActiveSessionResponse({required this.isActive, this.startTime});
+
+  factory ActiveSessionResponse.fromJson(Map<String, dynamic> json) =>
+      _$ActiveSessionResponseFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ActiveSessionResponseToJson(this);
 }
 
+@JsonSerializable()
+class SessionResponse {
+  @JsonKey(name: 'id')
+  final int id;
+  @JsonKey(name: 'start_time')
+  final DateTime startTime;
+  @JsonKey(name: 'end_time')
+  final DateTime? stopTime;
+  @JsonKey(name: 'user_id')
+  final int? userId;
+
+  SessionResponse({
+    required this.id,
+    required this.startTime,
+    this.stopTime,
+    this.userId,
+  });
+
+  factory SessionResponse.fromJson(Map<String, dynamic> json) =>
+      _$SessionResponseFromJson(json);
+
+  Map<String, dynamic> toJson() => _$SessionResponseToJson(this);
+}
+
+@JsonSerializable()
 class MachineStatusResponse {
   @JsonKey(name: 'is_running')
   final bool isRunning;
 
   @JsonKey(name: 'current_speed')
-  final int currentSpeed; // RPM
+  final int currentSpeed;
 
   @JsonKey(name: 'target_speed')
-  final int targetSpeed; // RPM
+  final int targetSpeed;
 
   @JsonKey(name: 'start_time')
   final DateTime? startTime;
@@ -240,6 +272,10 @@ class QualityItemResponse {
   final DateTime createdAt;
   @JsonKey(name: 'action_taken')
   final String? actionTaken;
+  @JsonKey(name: 'is_confirmed')
+  final bool isConfirmed;
+  @JsonKey(name: 'defect_category')
+  final String? defectCategory;
 
   QualityItemResponse({
     required this.id,
@@ -250,6 +286,8 @@ class QualityItemResponse {
     this.imageUrl,
     required this.createdAt,
     this.actionTaken,
+    required this.isConfirmed,
+    this.defectCategory,
   });
 
   static String _idFromJson(dynamic id) => id?.toString() ?? '';
@@ -280,6 +318,8 @@ class QualityItemResponse {
       imageUrl: imageUrl,
       createdAt: createdAt,
       actionTaken: json['action_taken'],
+      isConfirmed: json['is_confirmed'] ?? false,
+      defectCategory: json['defect_category'],
     );
   }
 

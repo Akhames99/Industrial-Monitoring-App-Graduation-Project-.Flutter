@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:app/core/api/api_response_models.dart';
 import 'package:app/features/home/repositories/home_repository.dart';
 import 'package:app/features/home/widgets/system_state_widget.dart';
 import 'package:bloc/bloc.dart';
@@ -16,12 +17,15 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   HomeBloc({required HomeRepository homeRepository})
     : _homeRepository = homeRepository,
-      super(const HomeState()) {
+      super(HomeState()) {
     on<HomeFetchData>(_onHomeFetchData);
     on<StartSessionRequested>(_onStartSessionRequested);
     on<StopSessionRequested>(_onStopSessionRequested);
     on<_UpdateLocalStatus>(_onUpdateLocalStatus);
     on<CheckActiveSessionRequested>(_onCheckActiveSession);
+    on<FetchSessionHistory>(_onFetchSessionHistory);
+    on<ChangeHistoryDate>(_onChangeHistoryDate);
+    on<ChangeProductionYieldSession>(_onChangeProductionYieldSession);
     _initializeLocalState();
   }
 
@@ -56,14 +60,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
               state: s['state'] == 'running'
                   ? SystemState.running
                   : SystemState.idle,
-              startHour: s['start'],
-              endHour: s['end'],
+              startHour: (s['start'] as num).toDouble(),
+              endHour: (s['end'] as num).toDouble(),
             ),
           )
           .toList();
     } else {
       segments = [
-        StateSegment(state: SystemState.idle, startHour: 0, endHour: 24),
+        StateSegment(state: SystemState.idle, startHour: 0.0, endHour: 24.0),
       ];
     }
 
@@ -142,8 +146,21 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       // Trigger session check alongside dashboard data fetch
       add(const CheckActiveSessionRequested());
 
-      // Fetching other dashboard data (mocked in repo for now)
-      emit(state.copyWith(status: HomeStatus.success));
+      // Fetch dashboard data from repository
+      final yieldData = await _homeRepository.getProductionYield(
+        sessionId: state.selectedSessionId,
+      );
+      final defectionData = await _homeRepository.getDefectionData(
+        sessionId: state.selectedSessionId,
+      );
+
+      emit(
+        state.copyWith(
+          status: HomeStatus.success,
+          productionYield: yieldData,
+          defectionData: defectionData,
+        ),
+      );
     } catch (e) {
       emit(
         state.copyWith(status: HomeStatus.failure, errorMessage: e.toString()),
@@ -254,17 +271,13 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         // Close the current segment at timeHour
         newSegments[targetIndex] = StateSegment(
           state: lastSegment.state,
-          startHour: lastSegment.startHour.toInt(),
-          endHour: timeHour.toInt(),
+          startHour: lastSegment.startHour,
+          endHour: timeHour,
         );
 
         // Add new active segment from timeHour to 24
         newSegments.add(
-          StateSegment(
-            state: newState,
-            startHour: timeHour.toInt(),
-            endHour: 24,
-          ),
+          StateSegment(state: newState, startHour: timeHour, endHour: 24.0),
         );
       }
     }
@@ -301,6 +314,197 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     );
 
     await prefs.setString(_segmentsKey, segmentsJson);
+  }
+
+  Future<void> _onFetchSessionHistory(
+    FetchSessionHistory event,
+    Emitter<HomeState> emit,
+  ) async {
+    emit(state.copyWith(status: HomeStatus.loading));
+    try {
+      final sessions = await _homeRepository.getSessions();
+      final historySegments = _calculateSegmentsForDate(
+        sessions,
+        state.selectedHistoryDate,
+      );
+
+      final now = DateTime.now();
+      final isToday =
+          state.selectedHistoryDate.year == now.year &&
+          state.selectedHistoryDate.month == now.month &&
+          state.selectedHistoryDate.day == now.day;
+
+      if (isToday) {
+        await _saveState(state.systemStatus, historySegments);
+      }
+
+      emit(
+        state.copyWith(
+          status: HomeStatus.success,
+          allSessions: sessions,
+          historySegments: historySegments,
+          systemSegments: isToday ? historySegments : null,
+        ),
+      );
+    } catch (e) {
+      emit(
+        state.copyWith(status: HomeStatus.failure, errorMessage: e.toString()),
+      );
+    }
+  }
+
+  void _onChangeHistoryDate(ChangeHistoryDate event, Emitter<HomeState> emit) {
+    final historySegments = _calculateSegmentsForDate(
+      state.allSessions,
+      event.date,
+    );
+    emit(
+      state.copyWith(
+        selectedHistoryDate: event.date,
+        historySegments: historySegments,
+      ),
+    );
+  }
+
+  List<StateSegment> _calculateSegmentsForDate(
+    List<SessionResponse> sessions,
+    DateTime date,
+  ) {
+    final startOfDay = DateTime(date.year, date.month, date.day);
+    final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
+
+    // 1. Sort all sessions by start time first to handle zombie sessions
+    final sortedAll = List<SessionResponse>.from(sessions)
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+    List<({double start, double end})> runningPeriods = [];
+
+    for (int i = 0; i < sortedAll.length; i++) {
+      final s = sortedAll[i];
+      final sStart = s.startTime.toLocal();
+
+      // Heuristic: If stopTime is null but there is a NEXT session,
+      // cap this one to the start of the next session.
+      DateTime effectiveStop;
+      if (s.stopTime != null) {
+        effectiveStop = s.stopTime!;
+      } else if (i < sortedAll.length - 1) {
+        effectiveStop = sortedAll[i + 1].startTime;
+      } else {
+        effectiveStop = DateTime.now();
+      }
+
+      final sEnd = effectiveStop.toLocal();
+
+      // Check if session overlaps with the requested day
+      if (sStart.isBefore(endOfDay) && sEnd.isAfter(startOfDay)) {
+        double startHour = sStart.isBefore(startOfDay)
+            ? 0.0
+            : sStart.hour + (sStart.minute / 60.0) + (sStart.second / 3600.0);
+
+        double endHour = sEnd.isAfter(endOfDay)
+            ? 24.0
+            : sEnd.hour + (sEnd.minute / 60.0) + (sEnd.second / 3600.0);
+
+        if (endHour > startHour) {
+          runningPeriods.add((start: startHour, end: endHour));
+        }
+      }
+    }
+
+    if (runningPeriods.isEmpty) {
+      return [
+        StateSegment(state: SystemState.idle, startHour: 0.0, endHour: 24.0),
+      ];
+    }
+
+    // 2. Merge overlapping periods
+    runningPeriods.sort((a, b) => a.start.compareTo(b.start));
+
+    List<({double start, double end})> mergedPeriods = [];
+    if (runningPeriods.isNotEmpty) {
+      var current = runningPeriods[0];
+      for (int i = 1; i < runningPeriods.length; i++) {
+        final next = runningPeriods[i];
+        if (next.start <= current.end) {
+          if (next.end > current.end) {
+            current = (start: current.start, end: next.end);
+          }
+        } else {
+          mergedPeriods.add(current);
+          current = next;
+        }
+      }
+      mergedPeriods.add(current);
+    }
+
+    // 3. Build final segments with idle gaps
+    List<StateSegment> segments = [];
+    double currentHour = 0.0;
+
+    for (final period in mergedPeriods) {
+      if (period.start > currentHour) {
+        segments.add(
+          StateSegment(
+            state: SystemState.idle,
+            startHour: currentHour,
+            endHour: period.start,
+          ),
+        );
+      }
+      segments.add(
+        StateSegment(
+          state: SystemState.running,
+          startHour: period.start,
+          endHour: period.end,
+        ),
+      );
+      currentHour = period.end;
+    }
+
+    if (currentHour < 24.0) {
+      segments.add(
+        StateSegment(
+          state: SystemState.idle,
+          startHour: currentHour,
+          endHour: 24.0,
+        ),
+      );
+    }
+
+    return segments;
+  }
+
+  Future<void> _onChangeProductionYieldSession(
+    ChangeProductionYieldSession event,
+    Emitter<HomeState> emit,
+  ) async {
+    emit(
+      state.copyWith(
+        status: HomeStatus.loading,
+        selectedSessionId: event.sessionId,
+      ),
+    );
+    try {
+      final yieldData = await _homeRepository.getProductionYield(
+        sessionId: event.sessionId,
+      );
+      final defectionData = await _homeRepository.getDefectionData(
+        sessionId: event.sessionId,
+      );
+
+      emit(
+        state.copyWith(
+          status: HomeStatus.success,
+          productionYield: yieldData,
+          defectionData: defectionData,
+        ),
+      );
+    } catch (e) {
+      emit(
+        state.copyWith(status: HomeStatus.failure, errorMessage: e.toString()),
+      );
+    }
   }
 }
 

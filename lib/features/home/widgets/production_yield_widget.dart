@@ -57,11 +57,13 @@ class ProductionYieldData {
 class ProductionYieldWidget extends StatefulWidget {
   final ProductionYieldData data;
   final Function(String)? onPeriodChanged;
+  final List<String> availableSessions;
 
   const ProductionYieldWidget({
     Key? key,
     required this.data,
     this.onPeriodChanged,
+    this.availableSessions = const [],
   }) : super(key: key);
 
   @override
@@ -299,6 +301,7 @@ class _ProductionYieldWidgetState extends State<ProductionYieldWidget> {
 
   void _showPeriodMenu() {
     final periods = ['today', 'this week', 'this month', 'this year'];
+    final allOptions = [...periods, ...widget.availableSessions];
 
     showMenu(
       context: context,
@@ -308,16 +311,20 @@ class _ProductionYieldWidgetState extends State<ProductionYieldWidget> {
         0,
         0,
       ),
-      items: periods
+      items: allOptions
           .map(
-            (period) => PopupMenuItem(
-              value: period,
-              child: Text(period),
+            (option) => PopupMenuItem(
+              value: option,
+              child: Text(
+                option.startsWith('today') || periods.contains(option)
+                    ? option
+                    : 'Session $option',
+              ),
               onTap: () {
                 setState(() {
-                  selectedPeriod = period;
+                  selectedPeriod = option;
                 });
-                widget.onPeriodChanged?.call(period);
+                widget.onPeriodChanged?.call(option);
               },
             ),
           )
