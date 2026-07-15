@@ -75,6 +75,7 @@ ProductionYieldResponse _$ProductionYieldResponseFromJson(
 ) => ProductionYieldResponse(
   goodProducts: (json['good_products'] as num).toInt(),
   defectiveProducts: (json['defective_products'] as num).toInt(),
+  invalidProducts: (json['invalid_products'] as num?)?.toInt() ?? 0,
   totalProducts: (json['total_products'] as num).toInt(),
   yieldPercentage: (json['yield_percentage'] as num).toDouble(),
   period: json['period'] as String,
@@ -86,6 +87,7 @@ Map<String, dynamic> _$ProductionYieldResponseToJson(
 ) => <String, dynamic>{
   'good_products': instance.goodProducts,
   'defective_products': instance.defectiveProducts,
+  'invalid_products': instance.invalidProducts,
   'total_products': instance.totalProducts,
   'yield_percentage': instance.yieldPercentage,
   'period': instance.period,
@@ -166,24 +168,6 @@ Map<String, dynamic> _$ActiveSessionResponseToJson(
   'start_time': instance.startTime?.toIso8601String(),
 };
 
-SessionResponse _$SessionResponseFromJson(Map<String, dynamic> json) =>
-    SessionResponse(
-      id: (json['id'] as num).toInt(),
-      startTime: DateTime.parse(json['start_time'] as String),
-      stopTime: json['end_time'] == null
-          ? null
-          : DateTime.parse(json['end_time'] as String),
-      userId: (json['user_id'] as num?)?.toInt(),
-    );
-
-Map<String, dynamic> _$SessionResponseToJson(SessionResponse instance) =>
-    <String, dynamic>{
-      'id': instance.id,
-      'start_time': instance.startTime.toIso8601String(),
-      'end_time': instance.stopTime?.toIso8601String(),
-      'user_id': instance.userId,
-    };
-
 MachineStatusResponse _$MachineStatusResponseFromJson(
   Map<String, dynamic> json,
 ) => MachineStatusResponse(
@@ -222,6 +206,7 @@ QualityItemResponse _$QualityItemResponseFromJson(Map<String, dynamic> json) =>
       actionTaken: json['action_taken'] as String?,
       isConfirmed: json['is_confirmed'] as bool,
       defectCategory: json['defect_category'] as String?,
+      isUploading: json['isUploading'] as bool? ?? false,
     );
 
 Map<String, dynamic> _$QualityItemResponseToJson(
@@ -237,6 +222,7 @@ Map<String, dynamic> _$QualityItemResponseToJson(
   'action_taken': instance.actionTaken,
   'is_confirmed': instance.isConfirmed,
   'defect_category': instance.defectCategory,
+  'isUploading': instance.isUploading,
 };
 
 QualityItemsListResponse _$QualityItemsListResponseFromJson(
@@ -286,10 +272,10 @@ Map<String, dynamic> _$UserProfileResponseToJson(
 
 TeamMemberResponse _$TeamMemberResponseFromJson(Map<String, dynamic> json) =>
     TeamMemberResponse(
-      id: json['id'] as String?,
-      name: json['name'] as String?,
-      role: json['role'] as String?,
-      username: json['username'] as String?,
+      id: TeamMemberResponse._stringFromJson(json['id']),
+      name: TeamMemberResponse._stringFromJson(json['name']),
+      role: TeamMemberResponse._stringFromJson(json['role']),
+      username: TeamMemberResponse._stringFromJson(json['username']),
       avatar: json['avatar'] as String?,
       joinedDate: json['joined_date'] == null
           ? null
@@ -378,20 +364,19 @@ Map<String, dynamic> _$AddTeamMemberRequestToJson(
   'password': instance.password,
 };
 
-RelabelItemRequest _$RelabelItemRequestFromJson(Map<String, dynamic> json) =>
-    RelabelItemRequest(newLabel: json['new_label'] as String);
-
-Map<String, dynamic> _$RelabelItemRequestToJson(RelabelItemRequest instance) =>
-    <String, dynamic>{'new_label': instance.newLabel};
-
 LoginResponse _$LoginResponseFromJson(Map<String, dynamic> json) =>
     LoginResponse(
       token: json['token'] as String,
+      sessionId: json['session_id'] as String,
       user: UserProfileResponse.fromJson(json['user'] as Map<String, dynamic>),
     );
 
 Map<String, dynamic> _$LoginResponseToJson(LoginResponse instance) =>
-    <String, dynamic>{'token': instance.token, 'user': instance.user};
+    <String, dynamic>{
+      'token': instance.token,
+      'session_id': instance.sessionId,
+      'user': instance.user,
+    };
 
 LogoutResponse _$LogoutResponseFromJson(Map<String, dynamic> json) =>
     LogoutResponse(success: json['success'] as bool);

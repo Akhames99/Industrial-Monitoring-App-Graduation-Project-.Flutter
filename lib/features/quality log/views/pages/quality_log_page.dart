@@ -12,20 +12,34 @@ class QualityLogPage extends StatefulWidget {
 }
 
 class _QualityLogPageState extends State<QualityLogPage> {
-  QualityLogContainer? qualityLogData; // Make it nullable instead of late
+  QualityLogContainer? qualityLogData;
   QualityItemStatus? selectedFilter;
+  QualityReviewCategory? selectedReviewCategory;
   int currentPage = 1;
 
   @override
   void initState() {
     super.initState();
-    selectedFilter = null; // Initialize to null (shows "All" items)
+    // Default mode: pending inspections.
+    selectedFilter = QualityItemStatus.pending;
     _initializeQualityLog();
   }
 
   Future<void> _initializeQualityLog() async {
+    await _loadData();
+  }
+
+  Future<void> _loadData() async {
     try {
-      final data = await QualityLogService().fetchQualityLog();
+      final data = await QualityLogService().fetchQualityLog(
+        filterByStatus: selectedFilter,
+      );
+      debugPrint('=== QUALITY ITEMS ===');
+      for (final item in data.items) {
+        debugPrint(
+          'ID: ${item.id} | imageUrl: ${item.imageUrl} | rawStatus: ${item.rawStatus}',
+        );
+      }
       if (mounted) {
         setState(() {
           qualityLogData = data;
@@ -33,12 +47,35 @@ class _QualityLogPageState extends State<QualityLogPage> {
       }
     } catch (e) {
       debugPrint('Error: $e');
+      if (mounted) {
+        setState(() {
+          qualityLogData = QualityLogContainer(
+            items: [],
+            lastUpdated: DateTime.now(),
+            pendingCount: 0,
+            reviewedCount: 0,
+          );
+        });
+      }
     }
   }
 
   void _filterByStatus(QualityItemStatus? status) {
+    if (selectedFilter == status) return;
     setState(() {
       selectedFilter = status;
+      // Leaving/entering the Reviewed tab resets the Good/Defected/Invalid
+      // sub-filter.
+      selectedReviewCategory = null;
+      currentPage = 1;
+    });
+    _loadData();
+  }
+
+  void _filterByReviewCategory(QualityReviewCategory? category) {
+    if (selectedReviewCategory == category) return;
+    setState(() {
+      selectedReviewCategory = category;
       currentPage = 1;
     });
   }
@@ -46,12 +83,21 @@ class _QualityLogPageState extends State<QualityLogPage> {
   List<QualityItem> _getFilteredItems() {
     if (qualityLogData == null) return [];
 
-    if (selectedFilter == null) {
-      return qualityLogData!.items;
+    var items = qualityLogData!.items;
+
+    if (selectedFilter != null) {
+      items = items.where((item) => item.status == selectedFilter).toList();
     }
-    return qualityLogData!.items
-        .where((item) => item.status == selectedFilter)
-        .toList();
+
+    // Good / Defected / Invalid sub-filter only applies within Reviewed.
+    if (selectedFilter == QualityItemStatus.reviewed &&
+        selectedReviewCategory != null) {
+      items = items
+          .where((item) => item.reviewCategory == selectedReviewCategory)
+          .toList();
+    }
+
+    return items;
   }
 
   void _goToPage(int page) {
@@ -64,17 +110,16 @@ class _QualityLogPageState extends State<QualityLogPage> {
     }
   }
 
-  // Handle Relabel Action
   void _handleRelabel(String itemId, String newLabel) async {
-    debugPrint('Relabel called for item: $itemId with label: $newLabel');
-    final success = await QualityLogService().editInspection(
-      itemId,
-      status: newLabel == 'Good' ? 'Good' : 'Defected',
-      defectCategory: newLabel == 'Good' ? '' : newLabel,
-    );
+    final success = await QualityLogService().relabelItem(itemId, newLabel);
 
     if (success) {
-      _updateItemStatus(itemId, QualityItemStatus.reviewed);
+      // Relabel finalizes the review server-side (sets user_id), which
+      // moves the item from Pending to Reviewed. Refetch instead of
+      // patching local state so tab membership and counts reflect what
+      // the server actually did.
+      currentPage = 1;
+      await _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -96,17 +141,18 @@ class _QualityLogPageState extends State<QualityLogPage> {
     }
   }
 
-  // Handle Confirm Action
   void _handleConfirm(String itemId) async {
     debugPrint('Confirm called for item: $itemId');
+
     final success = await QualityLogService().confirmInspection(itemId);
 
     if (success) {
       _updateItemStatus(itemId, QualityItemStatus.reviewed, isConfirmed: true);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Defection confirmed'),
+            content: const Text('Item confirmed successfully'),
             backgroundColor: Colors.blue[600],
             duration: const Duration(seconds: 2),
           ),
@@ -116,7 +162,7 @@ class _QualityLogPageState extends State<QualityLogPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Failed to confirm defection'),
+            content: const Text('Failed to confirm inspection'),
             backgroundColor: Colors.red[600],
           ),
         );
@@ -124,75 +170,98 @@ class _QualityLogPageState extends State<QualityLogPage> {
     }
   }
 
-  // Handle Dismiss Action
-  void _handleDismiss(String itemId) {
-    debugPrint('Dismiss called for item: $itemId');
-    // TODO: Call API to dismiss item
-    _removeItem(itemId);
+  void _handleEdit(String itemId, String newLabel) async {
+    final isInvalid = newLabel.toLowerCase() == 'invalid';
+    final isPerfectBottle = newLabel.toLowerCase() == 'perfect_bottle';
+    final status = isInvalid
+        ? 'Invalid'
+        : (isPerfectBottle ? 'Good' : 'Defected');
+    final defectCategory = (isInvalid || isPerfectBottle) ? '' : newLabel;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Item dismissed'),
-        backgroundColor: Colors.red[600],
-        duration: const Duration(seconds: 2),
-      ),
+    final success = await QualityLogService().editInspection(
+      itemId,
+      status,
+      defectCategory,
     );
+
+    if (success) {
+      currentPage = 1;
+      await _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Item edited to $newLabel successfully'),
+            backgroundColor: Colors.green[600],
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Failed to edit item'),
+            backgroundColor: Colors.red[600],
+          ),
+        );
+      }
+    }
   }
 
-  // Handle Send to Dataset Action
-  void _handleSendToDataset(String itemId) {
-    debugPrint('Send to dataset called for item: $itemId');
-    // TODO: Call API to send to dataset
-    _removeItem(itemId);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Item sent to dataset'),
-        backgroundColor: Colors.blue[600],
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
-  // Helper: Update item status in local state
   void _updateItemStatus(
     String itemId,
     QualityItemStatus newStatus, {
     bool? isConfirmed,
+    String? defectCategory,
+    String? rawStatus,
   }) {
     if (qualityLogData != null) {
+      final itemIndex = qualityLogData!.items.indexWhere(
+        (item) => item.id == itemId,
+      );
+      if (itemIndex == -1) return;
+      final oldStatus = qualityLogData!.items[itemIndex].status;
+
       final updatedItems = qualityLogData!.items.map((item) {
         if (item.id == itemId) {
           return item.copyWith(
             status: newStatus,
             isConfirmed: isConfirmed ?? item.isConfirmed,
+            defectCategory: defectCategory ?? item.defectCategory,
+            rawStatus: rawStatus ?? item.rawStatus,
           );
         }
         return item;
       }).toList();
 
-      setState(() {
-        qualityLogData = qualityLogData!.copyWith(items: updatedItems);
-      });
-    }
-  }
+      int pendingDelta = 0;
+      int reviewedDelta = 0;
+      if (oldStatus != newStatus) {
+        if (oldStatus == QualityItemStatus.pending) {
+          pendingDelta = -1;
+        } else if (oldStatus == QualityItemStatus.reviewed) {
+          reviewedDelta = -1;
+        }
 
-  // Helper: Remove item from local state
-  void _removeItem(String itemId) {
-    if (qualityLogData != null) {
-      final updatedItems = qualityLogData!.items
-          .where((item) => item.id != itemId)
-          .toList();
+        if (newStatus == QualityItemStatus.pending) {
+          pendingDelta += 1;
+        } else if (newStatus == QualityItemStatus.reviewed) {
+          reviewedDelta += 1;
+        }
+      }
 
       setState(() {
-        qualityLogData = qualityLogData!.copyWith(items: updatedItems);
+        qualityLogData = qualityLogData!.copyWith(
+          items: updatedItems,
+          pendingCount: qualityLogData!.pendingCount + pendingDelta,
+          reviewedCount: qualityLogData!.reviewedCount + reviewedDelta,
+        );
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Show loading state while data is being fetched
     if (qualityLogData == null) {
       return Scaffold(
         backgroundColor: AppColors.primary,
@@ -218,6 +287,10 @@ class _QualityLogPageState extends State<QualityLogPage> {
               _buildHeader(),
               const SizedBox(height: 16.0),
               _buildFilterTabs(),
+              if (selectedFilter == QualityItemStatus.reviewed) ...[
+                const SizedBox(height: 12.0),
+                _buildReviewCategoryTabs(),
+              ],
               const SizedBox(height: 16.0),
               Expanded(
                 child: RefreshIndicator(
@@ -245,10 +318,9 @@ class _QualityLogPageState extends State<QualityLogPage> {
                               children: [
                                 QualityItemCard(
                                   item: currentItems[index],
-                                  onDismiss: _handleDismiss,
-                                  onConfirm: _handleConfirm,
-                                  onSendToDataset: _handleSendToDataset,
+                                  onConfirm: (id) => _handleConfirm(id),
                                   onRelabel: _handleRelabel,
+                                  onEdit: _handleEdit,
                                 ),
                                 if (index < currentItems.length - 1)
                                   const SizedBox(height: 16),
@@ -261,7 +333,6 @@ class _QualityLogPageState extends State<QualityLogPage> {
 
               const SizedBox(height: 24),
 
-              // Pagination
               if (maxPage > 1) _buildPagination(maxPage),
               const SizedBox(height: 16),
             ],
@@ -272,41 +343,50 @@ class _QualityLogPageState extends State<QualityLogPage> {
   }
 
   Widget _buildHeader() {
-    final pendingCount = qualityLogData?.pendingItems.length ?? 0;
+    final pendingCount = qualityLogData?.pendingCount ?? 0;
+    final reviewedCount = qualityLogData?.reviewedCount ?? 0;
+    final allCount = pendingCount + reviewedCount;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Row(
-          children: [
-            Icon(
-              LucideIcons.clipboardList300,
-              color: AppColors.blue,
-              size: 32.0,
-            ),
-            const SizedBox(width: 8.0),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Quality Log',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.blue,
-                    fontSize: 20.0,
-                  ),
+        Expanded(
+          child: Row(
+            children: [
+              Icon(
+                LucideIcons.clipboardList300,
+                color: AppColors.blue,
+                size: 32.0,
+              ),
+              const SizedBox(width: 8.0),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Quality Log',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.blue,
+                        fontSize: 20.0,
+                      ),
+                    ),
+                    Text(
+                      '$allCount All | $pendingCount Pending | $reviewedCount Reviewed',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: AppColors.description,
+                        fontWeight: FontWeight.w400,
+                        fontSize: 12.0,
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  '${pendingCount} Of Items Pending',
-                  style: TextStyle(
-                    color: AppColors.description,
-                    fontWeight: FontWeight.w400,
-                    fontSize: 12.0,
-                  ),
-                ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
+        const SizedBox(width: 8.0),
         Row(
           children: [
             Container(
@@ -343,15 +423,25 @@ class _QualityLogPageState extends State<QualityLogPage> {
   }
 
   Widget _buildFilterTabs() {
+    final pendingCount = qualityLogData?.pendingCount ?? 0;
+    final reviewedCount = qualityLogData?.reviewedCount ?? 0;
+    final allCount = pendingCount + reviewedCount;
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
-          _buildFilterButton('All', null),
+          _buildFilterButton('All ($allCount)', null),
           const SizedBox(width: 16.0),
-          _buildFilterButton('Pending', QualityItemStatus.pending),
+          _buildFilterButton(
+            'Pending ($pendingCount)',
+            QualityItemStatus.pending,
+          ),
           const SizedBox(width: 16.0),
-          _buildFilterButton('Reviewed', QualityItemStatus.reviewed),
+          _buildFilterButton(
+            'Reviewed ($reviewedCount)',
+            QualityItemStatus.reviewed,
+          ),
         ],
       ),
     );
@@ -382,15 +472,64 @@ class _QualityLogPageState extends State<QualityLogPage> {
     );
   }
 
+  /// Sub-tabs shown only inside the "Reviewed" filter, mirroring the three
+  /// review outcomes stored in the database: Good, Defected, Invalid.
+  Widget _buildReviewCategoryTabs() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _buildReviewCategoryButton('All', null),
+          const SizedBox(width: 12.0),
+          _buildReviewCategoryButton('Good', QualityReviewCategory.good),
+          const SizedBox(width: 12.0),
+          _buildReviewCategoryButton(
+            'Defected',
+            QualityReviewCategory.defected,
+          ),
+          const SizedBox(width: 12.0),
+          _buildReviewCategoryButton('Invalid', QualityReviewCategory.invalid),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReviewCategoryButton(
+    String label,
+    QualityReviewCategory? category,
+  ) {
+    final isActive = selectedReviewCategory == category;
+    return GestureDetector(
+      onTap: () => _filterByReviewCategory(category),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isActive ? Colors.blue[50] : Colors.white,
+          border: Border.all(
+            color: isActive ? Colors.blue[600]! : Colors.grey[300]!,
+          ),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: isActive ? Colors.blue[600] : Colors.grey[700],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPagination(int maxPage) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // Prev Button
         GestureDetector(
           onTap: currentPage > 1 ? () => _goToPage(currentPage - 1) : null,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             decoration: BoxDecoration(
               color: currentPage > 1 ? Colors.white : Colors.grey[200],
               border: Border.all(color: Colors.grey[300]!),
@@ -406,54 +545,59 @@ class _QualityLogPageState extends State<QualityLogPage> {
           ),
         ),
         const SizedBox(width: 8),
-
-        // Page numbers
-        ...List.generate(maxPage, (index) {
-          final pageNum = index + 1;
-          return Row(
-            children: [
-              GestureDetector(
-                onTap: () => _goToPage(pageNum),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: currentPage == pageNum
-                        ? Colors.blue[600]
-                        : Colors.white,
-                    border: Border.all(
-                      color: currentPage == pageNum
-                          ? Colors.blue[600]!
-                          : Colors.grey[300]!,
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(maxPage, (index) {
+                final pageNum = index + 1;
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GestureDetector(
+                      onTap: () => _goToPage(pageNum),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: currentPage == pageNum
+                              ? Colors.blue[600]
+                              : Colors.white,
+                          border: Border.all(
+                            color: currentPage == pageNum
+                                ? Colors.blue[600]!
+                                : Colors.grey[300]!,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          pageNum.toString(),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: currentPage == pageNum
+                                ? Colors.white
+                                : Colors.grey[700],
+                          ),
+                        ),
+                      ),
                     ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    pageNum.toString(),
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: currentPage == pageNum
-                          ? Colors.white
-                          : Colors.grey[700],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-            ],
-          );
-        }),
-
-        // Next Button
+                    const SizedBox(width: 8),
+                  ],
+                );
+              }),
+            ),
+          ),
+        ),
         GestureDetector(
           onTap: currentPage < maxPage
               ? () => _goToPage(currentPage + 1)
               : null,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             decoration: BoxDecoration(
               color: currentPage < maxPage ? Colors.white : Colors.grey[200],
               border: Border.all(color: Colors.grey[300]!),
@@ -478,18 +622,18 @@ class _QualityLogPageState extends State<QualityLogPage> {
 // Quality Item Card Widget
 class QualityItemCard extends StatelessWidget {
   final QualityItem item;
-  final Function(String)? onDismiss;
   final Function(String)? onConfirm;
   final Function(String)? onSendToDataset;
   final Function(String, String)? onRelabel;
+  final Function(String, String)? onEdit;
 
   const QualityItemCard({
     Key? key,
     required this.item,
-    this.onDismiss,
     this.onConfirm,
     this.onSendToDataset,
     this.onRelabel,
+    this.onEdit,
   }) : super(key: key);
 
   @override
@@ -509,7 +653,6 @@ class QualityItemCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Image Preview with confidence badge
           Stack(
             children: [
               ClipRRect(
@@ -545,7 +688,6 @@ class QualityItemCard extends StatelessWidget {
                       : _buildPlaceholderContent(),
                 ),
               ),
-              // Confidence badge
               Positioned(
                 top: 12,
                 right: 12,
@@ -588,17 +730,20 @@ class QualityItemCard extends StatelessWidget {
             ],
           ),
 
-          // Item Info
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Title and Status
                 Row(
                   children: [
                     Text(
-                      item.title,
+                      (item.defectCategory != null &&
+                              item.defectCategory!.isNotEmpty)
+                          ? item.defectCategory!
+                          : (item.title.toLowerCase() == 'pending')
+                          ? item.type.displayName
+                          : item.title,
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -613,10 +758,13 @@ class QualityItemCard extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: item.status.badgeColor,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        item.status.displayName,
+                        (item.defectCategory != null &&
+                                item.defectCategory!.isNotEmpty)
+                            ? "${item.status.displayName}"
+                            : item.status.displayName,
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -624,10 +772,30 @@ class QualityItemCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (item.reviewCategory != null) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: item.reviewCategory!.badgeColor,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          item.reviewCategory!.displayName,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: item.reviewCategory!.badgeTextColor,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
 
-                // Timestamp
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Row(
@@ -646,7 +814,6 @@ class QualityItemCard extends StatelessWidget {
                   ),
                 ),
 
-                // Action taken (if any)
                 if (item.actionTaken != null) ...[
                   const SizedBox(height: 8),
                   Row(
@@ -679,33 +846,47 @@ class QualityItemCard extends StatelessWidget {
   }
 
   Widget _buildActionButtons(BuildContext context) {
-    // Show different buttons based on status
+    if (item.isUploading) {
+      return Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.grey[500],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Uploading image…',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     if (item.status == QualityItemStatus.reviewed) {
-      return Row(
-        children: [
-          Expanded(
-            child: _buildButton(
-              icon: Icons.delete_outline,
-              label: 'Dismiss',
-              backgroundColor: const Color(0xFFFEE8E8),
-              textColor: const Color(0xFFE74C3C),
-              onPressed: () => _showDismissModal(context),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildButton(
-              icon: Icons.send_outlined,
-              label: 'Send to dataset',
-              backgroundColor: const Color(0xFFEBF5FB),
-              textColor: Colors.blue[600]!,
-              onPressed: () => _showSendToDatasetModal(context),
-            ),
-          ),
-        ],
+      return _buildButton(
+        icon: Icons.edit_outlined,
+        label: 'Edit',
+        backgroundColor: Colors.grey[200]!,
+        textColor: Colors.grey[700]!,
+        onPressed: () => _showEditModal(context),
       );
     } else {
-      // Pending status
       return Row(
         children: [
           Expanded(
@@ -724,7 +905,7 @@ class QualityItemCard extends StatelessWidget {
               label: 'Confirm',
               backgroundColor: const Color(0xFFEBF5FB),
               textColor: Colors.blue[600]!,
-              onPressed: () => _showConfirmModal(context),
+              onPressed: () => _handleDirectConfirm(),
             ),
           ),
         ],
@@ -766,7 +947,6 @@ class QualityItemCard extends StatelessWidget {
     );
   }
 
-  // Modal Dialogs
   void _showRelabelModal(BuildContext context) {
     showDialog(
       context: context,
@@ -779,37 +959,19 @@ class QualityItemCard extends StatelessWidget {
     );
   }
 
-  void _showConfirmModal(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => ConfirmDefectionModal(
-        item: item,
-        onConfirm: () {
-          onConfirm?.call(item.id);
-        },
-      ),
-    );
+  void _handleDirectConfirm() {
+    // Call confirm API directly without showing dialog
+    onConfirm?.call(item.id);
   }
 
-  void _showDismissModal(BuildContext context) {
+  void _showEditModal(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => DismissItemModal(
+      builder: (context) => RelabelItemModal(
         item: item,
-        onDismiss: () {
-          onDismiss?.call(item.id);
-        },
-      ),
-    );
-  }
-
-  void _showSendToDatasetModal(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => SendToDatasetModal(
-        item: item,
-        onSend: () {
-          onSendToDataset?.call(item.id);
+        isEditMode: true,
+        onRelabel: (newLabel) {
+          onEdit?.call(item.id, newLabel);
         },
       ),
     );
@@ -859,7 +1021,6 @@ class QualityItemCard extends StatelessWidget {
   }
 }
 
-// Example Usage
 class QualityLogExample extends StatelessWidget {
   const QualityLogExample({Key? key}) : super(key: key);
 

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:app/core/api/api_client.dart';
 import 'package:app/core/api/api_exception.dart';
 import 'package:app/core/api/api_response_models.dart';
@@ -16,11 +18,9 @@ class AuthRepository {
   }) async {
     final response = await apiClient.post(
       Endpoints.login,
-      data: {
-        'username': username,
-        'password': password,
-      },
+      data: {'username': username, 'password': password},
     );
+    debugPrint('=== RAW LOGIN RESPONSE: ${jsonEncode(response.data)}');
 
     if (response.data is! Map) {
       throw ApiException(
@@ -30,10 +30,11 @@ class AuthRepository {
     }
 
     final data = response.data as Map<String, dynamic>;
-    
+
     // Check if it's an ApiResponse wrapper or a flat success object
-    final bool success = data['success'] as bool? ?? 
-                        (data.containsKey('user_id') || data.containsKey('token'));
+    final bool success =
+        data['success'] as bool? ??
+        (data.containsKey('user_id') || data.containsKey('token'));
 
     if (!success) {
       final errorMessage = _extractErrorFromData(data);
@@ -67,17 +68,19 @@ class AuthRepository {
       // We try to parse the response if it's a map
       if (response.data is Map<String, dynamic>) {
         final data = response.data as Map<String, dynamic>;
-        
+
         // If it's a standard ApiResponse wrapper
         if (data.containsKey('success')) {
-            final apiResponse = ApiResponse<LogoutResponse>.fromJson(
-              data,
-              (json) => LogoutResponse.fromJson(json as Map<String, dynamic>),
-            );
+          final apiResponse = ApiResponse<LogoutResponse>.fromJson(
+            data,
+            (json) => LogoutResponse.fromJson(json as Map<String, dynamic>),
+          );
 
-            if (!apiResponse.success) {
-              debugPrint('Logout API returned success=false: ${apiResponse.message}');
-            }
+          if (!apiResponse.success) {
+            debugPrint(
+              'Logout API returned success=false: ${apiResponse.message}',
+            );
+          }
         }
       }
     } catch (e) {
@@ -108,7 +111,7 @@ class AuthRepository {
               .join(', ');
         }
       }
-      
+
       // 2. Check for traditional message/error keys
       if (data.containsKey('message')) return data['message'] as String;
       if (data.containsKey('error')) return data['error'] as String;
@@ -117,7 +120,7 @@ class AuthRepository {
         if (errors is List) return errors.join(', ');
         if (errors is String) return errors;
       }
-      
+
       // 3. Fallback: tell the user what keys were found
       return 'Unexpected API error. Keys: ${data.keys.join(', ')}';
     }

@@ -34,8 +34,11 @@ class _NavbarPageState extends State<NavbarPage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Sync session state when the app is resumed from background
-      _homeBloc.add(const CheckActiveSessionRequested());
+      // CheckActiveSessionRequested was removed when /motor/status became
+      // the single source of truth for systemStatus. Re-sync both the live
+      // status and the timeline segments on resume instead.
+      _homeBloc.add(const FetchMotorStatus());
+      _homeBloc.add(const FetchMotorTimeline());
     }
   }
 

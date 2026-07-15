@@ -1,8 +1,9 @@
 import 'package:app/core/utils/theme/app_colors.dart';
-import 'package:app/features/fix/views/pages/fix_page.dart';
+// import 'package:app/features/fix/views/pages/fix_page.dart';
 import 'package:app/features/home/views/pages/home_page.dart';
 import 'package:app/features/quality%20log/views/pages/quality_log_page.dart';
-import 'package:app/features/vision/views/pages/vision_page.dart';
+import 'package:app/features/sensors/views/pages/sensors_page.dart';
+import 'package:app/features/analytics/views/pages/analytics_page.dart';
 import 'package:app/features/control/views/pages/control_page.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -31,10 +32,10 @@ class _MyBottomNavigationBarState extends State<MyBottomNavigationBar> {
           ),
         ),
         PersistentTabConfig(
-          screen: VisionPage(),
+          screen: AnalyticsPage(),
           item: ItemConfig(
-            icon: Icon(LucideIcons.eye),
-            title: "Vision",
+            icon: Icon(Icons.bar_chart_rounded),
+            title: "Analytics",
             activeForegroundColor: AppColors.white,
             activeColorSecondary: AppColors.blue,
           ),
@@ -49,10 +50,10 @@ class _MyBottomNavigationBarState extends State<MyBottomNavigationBar> {
           ),
         ),
         PersistentTabConfig(
-          screen: FixPage(),
+          screen: SensorsPage(),
           item: ItemConfig(
-            icon: Icon(LucideIcons.wrench),
-            title: "Fix",
+            icon: Icon(LucideIcons.activity),
+            title: "Sensors",
             activeForegroundColor: AppColors.white,
             activeColorSecondary: AppColors.blue,
           ),

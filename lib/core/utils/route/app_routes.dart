@@ -7,4 +7,5 @@ class AppRoutes {
   static const String fix = '/fix';
   static const String settings = '/settings';
   static const String sessionHistory = '/session_history';
+  static const String sensors = '/sensors';
 }

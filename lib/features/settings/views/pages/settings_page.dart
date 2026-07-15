@@ -15,17 +15,14 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  int selectedTab = 0; // 0: General, 1: Team, 2: Security
+  int selectedTab = 0;
   List<TeamMember> teamMembers = [];
   late SecuritySettings securitySettings;
   bool isLoading = true;
 
-  // Text controllers for General tab
   late TextEditingController fullNameController;
   late TextEditingController roleController;
   late TextEditingController usernameController;
-
-  // Text controllers for Security tab
   late TextEditingController newPasswordController;
   bool isChangingPassword = false;
   bool isUpdatingUsername = false;
@@ -35,6 +32,11 @@ class _SettingsPageState extends State<SettingsPage> {
   void initState() {
     super.initState();
     _initializeControllers();
+    securitySettings = SecuritySettings(
+      userId: '',
+      lastPasswordChange: DateTime.now(),
+      lastLogin: DateTime.now(),
+    );
     _loadData();
   }
 
@@ -47,7 +49,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
   void _loadData() async {
     try {
-      // Read user from LoginCubit state
       final loginState = context.read<LoginCubit>().state;
       if (loginState is LoginSuccess) {
         final user = loginState.loginResponse.user;
@@ -56,20 +57,17 @@ class _SettingsPageState extends State<SettingsPage> {
         usernameController.text = user.username;
       }
 
-      // Fetch data from real API using Repository
       final repo = SettingsRepository();
       try {
-        final securityData = await repo.getSecuritySettings();
-        securitySettings = SecuritySettings.fromJson(securityData);
-
         final membersResponse = await repo.getTeamMembers();
+        debugPrint('Loaded ${membersResponse.members.length} team members');
         teamMembers = membersResponse.members
             .map(
               (m) => TeamMember(
                 id: m.id ?? UniqueKey().toString(),
                 name: m.name ?? m.username ?? 'Unknown Member',
                 username: m.username ?? 'unknown',
-                role: m.role ?? 'Team Member',
+                role: m.role ?? 'Viewer',
                 avatar:
                     m.avatar ??
                     (m.name != null && m.name!.isNotEmpty
@@ -81,9 +79,14 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             )
             .toList();
+        debugPrint('Mapped ${teamMembers.length} team members');
       } catch (e) {
         debugPrint('Error loading settings from API: $e');
-        // Fallback or keep current if appropriate
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error loading settings: $e')));
+        }
         if (e.toString().contains('404')) {
           teamMembers = [];
         }
@@ -145,52 +148,52 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _updateRole() async {
-    final newRole = roleController.text.trim();
-    if (newRole.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Role cannot be empty')));
-      return;
-    }
+  // Future<void> _updateRole() async {
+  //   final newRole = roleController.text.trim();
+  //   if (newRole.isEmpty) {
+  //     ScaffoldMessenger.of(
+  //       context,
+  //     ).showSnackBar(const SnackBar(content: Text('Role cannot be empty')));
+  //     return;
+  //   }
 
-    final loginState = context.read<LoginCubit>().state;
-    if (loginState is! LoginSuccess) return;
+  //   final loginState = context.read<LoginCubit>().state;
+  //   if (loginState is! LoginSuccess) return;
 
-    final user = loginState.loginResponse.user;
-    if (newRole == user.role) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No changes detected')));
-      return;
-    }
+  //   final user = loginState.loginResponse.user;
+  //   if (newRole == user.role) {
+  //     ScaffoldMessenger.of(
+  //       context,
+  //     ).showSnackBar(const SnackBar(content: Text('No changes detected')));
+  //     return;
+  //   }
 
-    setState(() => isUpdatingRole = true);
-    try {
-      final repo = SettingsRepository();
-      await repo.changeRole(userId: user.id, newRole: newRole);
+  //   setState(() => isUpdatingRole = true);
+  //   try {
+  //     final repo = SettingsRepository();
+  //     await repo.changeRole(userId: user.id, newRole: newRole);
 
-      if (!mounted) return;
-      context.read<LoginCubit>().updateUserInfo(role: newRole);
+  //     if (!mounted) return;
+  //     context.read<LoginCubit>().updateUserInfo(role: newRole);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Role updated successfully'),
-          backgroundColor: Colors.green[600],
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to update role: $e'),
-          backgroundColor: Colors.red[600],
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => isUpdatingRole = false);
-    }
-  }
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(
+  //         content: const Text('Role updated successfully'),
+  //         backgroundColor: Colors.green[600],
+  //       ),
+  //     );
+  //   } catch (e) {
+  //     if (!mounted) return;
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(
+  //         content: Text('Failed to update role: $e'),
+  //         backgroundColor: Colors.red[600],
+  //       ),
+  //     );
+  //   } finally {
+  //     if (mounted) setState(() => isUpdatingRole = false);
+  //   }
+  // }
 
   Future<void> _changePassword() async {
     if (newPasswordController.text.isEmpty) {
@@ -200,7 +203,6 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
-    // Get user ID from login state
     final loginState = context.read<LoginCubit>().state;
     if (loginState is! LoginSuccess) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -212,7 +214,6 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     final userId = loginState.loginResponse.user.id;
-
     setState(() => isChangingPassword = true);
 
     try {
@@ -254,22 +255,109 @@ class _SettingsPageState extends State<SettingsPage> {
       barrierDismissible: false,
       builder: (context) => AddMemberDialog(
         onMemberAdded: () {
-          setState(() {
-            isLoading = true;
-          });
+          setState(() => isLoading = true);
           _loadData();
         },
       ),
     );
   }
 
+  void _showEditRoleDialog(TeamMember member) {
+    String selectedRole = member.role; // pre-select current role
+
+    // Normalize to valid value
+    if (!['Admin', 'Operator', 'Viewer'].contains(selectedRole)) {
+      selectedRole = 'Viewer';
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Edit Role for ${member.name}'),
+          content: DropdownButtonFormField<String>(
+            value: selectedRole,
+            decoration: InputDecoration(
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            items: [
+              'Viewer',
+              'Operator',
+              'Admin',
+            ].map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+            onChanged: (value) =>
+                setDialogState(() => selectedRole = value ?? 'Viewer'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final scaffoldMessenger = ScaffoldMessenger.of(context);
+                Navigator.pop(context);
+                try {
+                  final repo = SettingsRepository();
+                  await repo.changeRole(
+                    userId: member.id,
+                    newRole: selectedRole,
+                  );
+                  if (!mounted) return;
+                  setState(() {
+                    final index = teamMembers.indexWhere(
+                      (m) => m.id == member.id,
+                    );
+                    if (index != -1) {
+                      teamMembers[index] = TeamMember(
+                        id: member.id,
+                        name: member.name,
+                        username: member.username,
+                        role: selectedRole, // ✅ update role locally
+                        avatar: member.avatar,
+                        joinedDate: member.joinedDate,
+                      );
+                    }
+                  });
+                  scaffoldMessenger.showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        '${member.name}\'s role updated to $selectedRole',
+                      ),
+                      backgroundColor: Colors.green[600],
+                    ),
+                  );
+                } catch (e) {
+                  scaffoldMessenger.showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to update role: $e'),
+                      backgroundColor: Colors.red[600],
+                    ),
+                  );
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showMemberOptions(TeamMember member) {
+    final loginState = context.read<LoginCubit>().state;
+    final isAdmin =
+        loginState is LoginSuccess &&
+        loginState.loginResponse.user.role.toLowerCase() == 'admin';
+
     showModalBottomSheet(
       context: context,
       builder: (context) => Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           color: Colors.white,
-          borderRadius: const BorderRadius.only(
+          borderRadius: BorderRadius.only(
             topLeft: Radius.circular(16),
             topRight: Radius.circular(16),
           ),
@@ -279,21 +367,35 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                leading: const Icon(Icons.edit),
-                title: const Text('Edit'),
-                onTap: () {
-                  Navigator.pop(context);
-                },
-              ),
-              ListTile(
-                leading: Icon(Icons.delete, color: Colors.red),
-                title: Text('Remove', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showRemoveConfirmation(member);
-                },
-              ),
+              if (isAdmin)
+                ListTile(
+                  leading: const Icon(Icons.edit, color: Colors.blue),
+                  title: const Text('Edit Role'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showEditRoleDialog(member);
+                  },
+                ),
+              if (isAdmin)
+                ListTile(
+                  leading: const Icon(Icons.delete, color: Colors.red),
+                  title: const Text(
+                    'Remove',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showRemoveConfirmation(member);
+                  },
+                ),
+              if (!isAdmin)
+                const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'Only admins can manage members.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
             ],
           ),
         ),
@@ -313,17 +415,31 @@ class _SettingsPageState extends State<SettingsPage> {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
+              final scaffoldMessenger = ScaffoldMessenger.of(context);
               Navigator.pop(context);
-              setState(() {
-                teamMembers.removeWhere((m) => m.id == member.id);
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('${member.name} removed'),
-                  backgroundColor: Colors.green[600],
-                ),
-              );
+              try {
+                final repo = SettingsRepository();
+                await repo.deleteMember(userId: member.id);
+
+                if (!mounted) return;
+                setState(() {
+                  teamMembers.removeWhere((m) => m.id == member.id);
+                });
+                scaffoldMessenger.showSnackBar(
+                  SnackBar(
+                    content: Text('${member.name} removed'),
+                    backgroundColor: Colors.green[600],
+                  ),
+                );
+              } catch (e) {
+                scaffoldMessenger.showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to remove member: $e'),
+                    backgroundColor: Colors.red[600],
+                  ),
+                );
+              }
             },
             child: Text('Remove', style: TextStyle(color: Colors.red[600])),
           ),
@@ -367,7 +483,7 @@ class _SettingsPageState extends State<SettingsPage> {
         backgroundColor: AppColors.primary,
         body: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.only(left: 16.0, right: 16.0, top: 44.0),
+            padding: const EdgeInsets.only(left: 16.0, right: 16.0, top: 16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -513,18 +629,17 @@ class _SettingsPageState extends State<SettingsPage> {
                   isUpdatingUsername,
                 ),
                 const SizedBox(height: 20),
-                _buildTextFieldWithAction(
-                  'Role',
-                  roleController,
-                  'Update Role',
-                  _updateRole,
-                  isUpdatingRole,
-                ),
+                // _buildTextFieldWithAction(
+                //   'Role',
+                //   roleController,
+                //   'Update Role',
+                //   _updateRole,
+                //   isUpdatingRole,
+                // ),
               ],
             ),
           ),
           const SizedBox(height: 24),
-          // Logout Button
           Material(
             color: Colors.red[50],
             borderRadius: BorderRadius.circular(10),
@@ -565,6 +680,11 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _buildTeamTab() {
+    final loginState = context.read<LoginCubit>().state;
+    final isAdmin =
+        loginState is LoginSuccess &&
+        loginState.loginResponse.user.role.toLowerCase() == 'admin';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -589,44 +709,62 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ],
             ),
-            GestureDetector(
-              onTap: _showAddMemberDialog,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.blue[100],
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.add, color: Colors.blue[600], size: 20),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Add Member',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.blue[600],
+            if (isAdmin)
+              GestureDetector(
+                onTap: _showAddMemberDialog,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[100],
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.add, color: Colors.blue[600], size: 20),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Add Member',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue[600],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
           ],
         ),
         const SizedBox(height: 20),
         Expanded(
-          child: ListView.builder(
-            itemCount: teamMembers.length,
-            itemBuilder: (context, index) {
-              final member = teamMembers[index];
-              return _buildTeamMemberCard(member);
-            },
-          ),
+          child: teamMembers.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.people_outline,
+                        size: 48,
+                        color: Colors.grey[400],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No team members found',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  itemCount: teamMembers.length,
+                  itemBuilder: (context, index) {
+                    return _buildTeamMemberCard(teamMembers[index]);
+                  },
+                ),
         ),
       ],
     );
@@ -732,7 +870,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: isChangingPassword
-                      ? Center(
+                      ? const Center(
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             color: Colors.white,
@@ -855,7 +993,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 }
 
-// Add Member Dialog
+// ============ Add Member Dialog ============
 class AddMemberDialog extends StatefulWidget {
   final VoidCallback onMemberAdded;
   const AddMemberDialog({Key? key, required this.onMemberAdded})
@@ -867,22 +1005,20 @@ class AddMemberDialog extends StatefulWidget {
 
 class _AddMemberDialogState extends State<AddMemberDialog> {
   late TextEditingController usernameController;
-  late TextEditingController roleController;
   late TextEditingController passwordController;
+  String selectedRole = 'Viewer'; // ✅ replaces roleController
   bool isAdding = false;
 
   @override
   void initState() {
     super.initState();
     usernameController = TextEditingController();
-    roleController = TextEditingController();
     passwordController = TextEditingController();
   }
 
   @override
   void dispose() {
     usernameController.dispose();
-    roleController.dispose();
     passwordController.dispose();
     super.dispose();
   }
@@ -898,7 +1034,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
             TextField(
               controller: usernameController,
               decoration: InputDecoration(
-                hintText: 'User Name',
+                hintText: 'Username',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -916,14 +1052,21 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
               ),
             ),
             const SizedBox(height: 16),
-            TextField(
-              controller: roleController,
+            DropdownButtonFormField<String>(
+              value: selectedRole,
               decoration: InputDecoration(
                 hintText: 'Role',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
               ),
+              items: [
+                'Viewer',
+                'Operator',
+                'Admin',
+              ].map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+              onChanged: (value) =>
+                  setState(() => selectedRole = value ?? 'Viewer'),
             ),
           ],
         ),
@@ -937,11 +1080,10 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
           onPressed: isAdding
               ? null
               : () async {
-                  final username = usernameController.text.trim().toLowerCase();
-                  final role = roleController.text.trim().toLowerCase();
+                  final username = usernameController.text.trim();
                   final password = passwordController.text.trim();
 
-                  if (username.isEmpty || role.isEmpty || password.isEmpty) {
+                  if (username.isEmpty || password.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Please fill all fields')),
                     );
@@ -955,7 +1097,7 @@ class _AddMemberDialogState extends State<AddMemberDialog> {
                     await repo.addTeamMember(
                       username: username,
                       password: password,
-                      role: role,
+                      role: selectedRole, // ✅ uses dropdown value
                     );
 
                     if (!mounted) return;

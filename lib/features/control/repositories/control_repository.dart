@@ -8,7 +8,7 @@ class ControlRepository {
   // Get current machine status
   Future<MachineStatusResponse> getMachineStatus() async {
     try {
-      final response = await _apiClient.get(Endpoints.machineStatus);
+      final response = await _apiClient.get(Endpoints.motorStatus);
 
       if (response.statusCode == 200 && response.data != null) {
         return MachineStatusResponse.fromJson(

@@ -34,6 +34,7 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
     return Scaffold(
       backgroundColor: AppColors.primary,
       body: BlocListener<LoginCubit, LoginState>(
@@ -114,7 +115,7 @@ class _LoginPageState extends State<LoginPage> {
                   topRight: Radius.circular(32.0),
                 ),
                 child: Container(
-                  height: 400.0,
+                  height: size.height * 0.485,
                   width: double.infinity,
                   color: AppColors.white,
                   child: Padding(
@@ -142,9 +143,7 @@ class _LoginPageState extends State<LoginPage> {
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
                             TextButton(
-                              onPressed: () {
-                                // TODO: Implement forgot password
-                              },
+                              onPressed: () {},
                               child: Text(
                                 'Forget Password?',
                                 style: TextStyle(
@@ -170,16 +169,17 @@ class _LoginPageState extends State<LoginPage> {
                                   borderRadius: BorderRadius.circular(8.0),
                                   gradient: const LinearGradient(
                                     colors: [
-                                      Color(0XFF2563EB),
                                       Color(0XFF6200EA),
+                                      Color(0XFF2563EB),
                                     ],
+                                    begin: Alignment.centerRight,
+                                    end: Alignment.centerLeft,
                                   ),
                                 ),
                                 child: TextButton(
                                   onPressed: state is LoginLoading
                                       ? null
                                       : () {
-                                          // Validate inputs
                                           if (usernameController.text.isEmpty ||
                                               passwordController.text.isEmpty) {
                                             ScaffoldMessenger.of(
@@ -195,7 +195,6 @@ class _LoginPageState extends State<LoginPage> {
                                             return;
                                           }
 
-                                          // Call login method directly
                                           context.read<LoginCubit>().login(
                                             usernameController.text.trim(),
                                             passwordController.text,

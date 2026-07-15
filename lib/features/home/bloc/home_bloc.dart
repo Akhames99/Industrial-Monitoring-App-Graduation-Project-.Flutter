@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'package:app/core/api/api_response_models.dart';
 import 'package:app/features/home/repositories/home_repository.dart';
+import 'package:app/features/home/views/models/active_alerts_model.dart';
 import 'package:app/features/home/widgets/system_state_widget.dart';
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 part 'home_event.dart';
@@ -22,10 +24,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     on<StartSessionRequested>(_onStartSessionRequested);
     on<StopSessionRequested>(_onStopSessionRequested);
     on<_UpdateLocalStatus>(_onUpdateLocalStatus);
-    on<CheckActiveSessionRequested>(_onCheckActiveSession);
-    on<FetchSessionHistory>(_onFetchSessionHistory);
     on<ChangeHistoryDate>(_onChangeHistoryDate);
     on<ChangeProductionYieldSession>(_onChangeProductionYieldSession);
+    on<FetchMotorTimeline>(_onFetchMotorTimeline);
+    on<FetchMotorStatus>(_onFetchMotorStatus);
     _initializeLocalState();
   }
 
@@ -41,7 +43,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       await prefs.setString(_lastUpdateDateKey, today);
     }
 
-    final savedStatus = prefs.getString(_sessionKey) ?? 'Idle';
+    final savedStatus = prefs.getString(_sessionKey) ?? 'Stopped';
     final segmentsJson = prefs.getString(_segmentsKey);
     final startTimeStr = prefs.getString('session_start_time');
     final endTimeStr = prefs.getString('session_end_time');
@@ -57,9 +59,12 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       segments = decoded
           .map(
             (s) => StateSegment(
-              state: s['state'] == 'running'
-                  ? SystemState.running
-                  : SystemState.idle,
+              // Round-trips the real state (running/stopped/error/offline/unknown)
+              // instead of collapsing everything down to running/idle.
+              state: SystemState.values.firstWhere(
+                (v) => v.name == s['state'],
+                orElse: () => SystemState.stopped,
+              ),
               startHour: (s['start'] as num).toDouble(),
               endHour: (s['end'] as num).toDouble(),
             ),
@@ -67,7 +72,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           .toList();
     } else {
       segments = [
-        StateSegment(state: SystemState.idle, startHour: 0.0, endHour: 24.0),
+        StateSegment(state: SystemState.stopped, startHour: 0.0, endHour: 24.0),
       ];
     }
 
@@ -79,57 +84,16 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         endTime: endTime,
       ),
     );
-
-    add(const CheckActiveSessionRequested());
-  }
-
-  Future<void> _onCheckActiveSession(
-    CheckActiveSessionRequested event,
-    Emitter<HomeState> emit,
-  ) async {
-    try {
-      final session = await _homeRepository.getActiveSession();
-
-      final String apiStatus = session.isActive ? 'Running' : 'Idle';
-
-      // Only update if API disagrees with local state — avoids unnecessary redraws
-      if (apiStatus != state.systemStatus ||
-          (session.startTime != null &&
-              session.startTime != state.sessionStartTime)) {
-        final now = DateTime.now();
-        final currentHour = now.hour + (now.minute / 60.0);
-
-        // Rebuild segments to reflect the real status
-        final List<StateSegment> updatedSegments = _updateSegmentsForAction(
-          state.systemSegments,
-          session.isActive ? SystemState.running : SystemState.idle,
-          currentHour,
-        );
-
-        // Persist the corrected state locally
-        await _saveState(
-          apiStatus,
-          updatedSegments,
-          startTime: session.startTime,
-        );
-
-        emit(
-          state.copyWith(
-            systemStatus: apiStatus,
-            systemSegments: updatedSegments,
-            sessionStartTime: session.startTime,
-          ),
-        );
-      }
-    } catch (_) {
-      // Silently keep local state if API check fails
-    }
   }
 
   void _onUpdateLocalStatus(_UpdateLocalStatus event, Emitter<HomeState> emit) {
+    // Deliberately does NOT set systemStatus. The cached value in
+    // SharedPreferences can be stale (e.g. from before /motor/status existed,
+    // or from the last time the app was closed) and racing it against
+    // FetchMotorStatus is exactly the bug that kept showing "Running".
+    // /motor/status (via FetchMotorStatus) is the only writer of systemStatus.
     emit(
       state.copyWith(
-        systemStatus: event.status,
         systemSegments: event.segments,
         sessionStartTime: event.startTime,
         sessionEndTime: event.endTime,
@@ -143,10 +107,11 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   ) async {
     emit(state.copyWith(status: HomeStatus.loading));
     try {
-      // Trigger session check alongside dashboard data fetch
-      add(const CheckActiveSessionRequested());
+      // /motor/status is the single source of truth for the live status badge.
+      // /motor/timeline is only responsible for the segments bar / history list.
+      add(const FetchMotorStatus());
+      add(const FetchMotorTimeline());
 
-      // Fetch dashboard data from repository
       final yieldData = await _homeRepository.getProductionYield(
         sessionId: state.selectedSessionId,
       );
@@ -162,6 +127,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         ),
       );
     } catch (e) {
+      if (e.toString().contains('403') || e.toString().contains('Forbidden')) {
+        emit(state.copyWith(status: HomeStatus.success));
+        return;
+      }
       emit(
         state.copyWith(status: HomeStatus.failure, errorMessage: e.toString()),
       );
@@ -197,6 +166,10 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
             sessionStartTime: now,
           ),
         );
+
+        // Refresh from the real backend shortly after so the badge reflects
+        // actual telemetry rather than the optimistic local update.
+        add(const FetchMotorStatus());
       } else {
         emit(
           state.copyWith(
@@ -214,7 +187,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     StopSessionRequested event,
     Emitter<HomeState> emit,
   ) async {
-    if (state.systemStatus == 'Idle') return;
+    if (state.systemStatus.toLowerCase() != 'running') return;
 
     emit(state.copyWith(isSessionLoading: true));
     try {
@@ -225,20 +198,22 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
         final List<StateSegment> updatedSegments = _updateSegmentsForAction(
           state.systemSegments,
-          SystemState.idle,
+          SystemState.stopped,
           currentHour,
         );
 
-        await _saveState('Idle', updatedSegments, endTime: now);
+        await _saveState('Stopped', updatedSegments, endTime: now);
 
         emit(
           state.copyWith(
             isSessionLoading: false,
-            systemStatus: 'Idle',
+            systemStatus: 'Stopped',
             systemSegments: updatedSegments,
             sessionEndTime: now,
           ),
         );
+
+        add(const FetchMotorStatus());
       } else {
         emit(
           state.copyWith(
@@ -305,7 +280,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       segments
           .map(
             (s) => {
-              'state': s.state == SystemState.running ? 'running' : 'idle',
+              // Store the real enum name so it round-trips correctly on reload
+              // instead of collapsing everything to running/idle.
+              'state': s.state.name,
               'start': s.startHour,
               'end': s.endHour,
             },
@@ -316,163 +293,88 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     await prefs.setString(_segmentsKey, segmentsJson);
   }
 
-  Future<void> _onFetchSessionHistory(
-    FetchSessionHistory event,
+  /// Single source of truth for the live status badge (systemStatus).
+  /// Hits /motor/status. Nothing else in this bloc should set systemStatus
+  /// except the optimistic Start/Stop handlers above, which immediately
+  /// re-sync via this same method afterwards.
+  Future<void> _onFetchMotorStatus(
+    FetchMotorStatus event,
     Emitter<HomeState> emit,
   ) async {
-    emit(state.copyWith(status: HomeStatus.loading));
     try {
-      final sessions = await _homeRepository.getSessions();
-      final historySegments = _calculateSegmentsForDate(
-        sessions,
-        state.selectedHistoryDate,
+      final motorStatus = await _homeRepository.getMotorStatus();
+      final label = _statusLabel(
+        mapMotorStateString(motorStatus.motorStatus) ?? SystemState.unknown,
       );
 
-      final now = DateTime.now();
-      final isToday =
-          state.selectedHistoryDate.year == now.year &&
-          state.selectedHistoryDate.month == now.month &&
-          state.selectedHistoryDate.day == now.day;
-
-      if (isToday) {
-        await _saveState(state.systemStatus, historySegments);
-      }
+      await _saveState(label, state.systemSegments);
 
       emit(
         state.copyWith(
-          status: HomeStatus.success,
-          allSessions: sessions,
-          historySegments: historySegments,
-          systemSegments: isToday ? historySegments : null,
+          systemStatus: label,
+          motorStatusMessage: motorStatus.message,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Failed to fetch motor status: $e');
+      // Non-fatal — badge keeps showing last known status
+    }
+  }
+
+  String _statusLabel(SystemState state) {
+    switch (state) {
+      case SystemState.running:
+        return 'Running';
+      case SystemState.stopped:
+        return 'Stopped';
+      case SystemState.error:
+        return 'Error';
+      case SystemState.offline:
+        return 'Offline';
+      case SystemState.unknown:
+        return 'Unknown';
+    }
+  }
+
+  /// Responsible ONLY for segments (systemSegments / historySegments /
+  /// timelineEntries) — never touches systemStatus. /motor/status owns that.
+  Future<void> _onFetchMotorTimeline(
+    FetchMotorTimeline event,
+    Emitter<HomeState> emit,
+  ) async {
+    final targetDate = event.date ?? DateTime.now();
+    emit(state.copyWith(isHistoryLoading: true, clearHistoryError: true));
+
+    try {
+      final data = await _homeRepository.getMotorTimeline(date: targetDate);
+
+      final now = DateTime.now();
+      final isToday =
+          targetDate.year == now.year &&
+          targetDate.month == now.month &&
+          targetDate.day == now.day;
+
+      emit(
+        state.copyWith(
+          isHistoryLoading: false,
+          historySegments: data.segments,
+          timelineEntries: data.entries,
+          systemSegments: isToday ? data.segments : state.systemSegments,
         ),
       );
     } catch (e) {
       emit(
-        state.copyWith(status: HomeStatus.failure, errorMessage: e.toString()),
+        state.copyWith(
+          isHistoryLoading: false,
+          historyErrorMessage: 'Failed to load timeline: $e',
+        ),
       );
     }
   }
 
   void _onChangeHistoryDate(ChangeHistoryDate event, Emitter<HomeState> emit) {
-    final historySegments = _calculateSegmentsForDate(
-      state.allSessions,
-      event.date,
-    );
-    emit(
-      state.copyWith(
-        selectedHistoryDate: event.date,
-        historySegments: historySegments,
-      ),
-    );
-  }
-
-  List<StateSegment> _calculateSegmentsForDate(
-    List<SessionResponse> sessions,
-    DateTime date,
-  ) {
-    final startOfDay = DateTime(date.year, date.month, date.day);
-    final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
-
-    // 1. Sort all sessions by start time first to handle zombie sessions
-    final sortedAll = List<SessionResponse>.from(sessions)
-      ..sort((a, b) => a.startTime.compareTo(b.startTime));
-
-    List<({double start, double end})> runningPeriods = [];
-
-    for (int i = 0; i < sortedAll.length; i++) {
-      final s = sortedAll[i];
-      final sStart = s.startTime.toLocal();
-
-      // Heuristic: If stopTime is null but there is a NEXT session,
-      // cap this one to the start of the next session.
-      DateTime effectiveStop;
-      if (s.stopTime != null) {
-        effectiveStop = s.stopTime!;
-      } else if (i < sortedAll.length - 1) {
-        effectiveStop = sortedAll[i + 1].startTime;
-      } else {
-        effectiveStop = DateTime.now();
-      }
-
-      final sEnd = effectiveStop.toLocal();
-
-      // Check if session overlaps with the requested day
-      if (sStart.isBefore(endOfDay) && sEnd.isAfter(startOfDay)) {
-        double startHour = sStart.isBefore(startOfDay)
-            ? 0.0
-            : sStart.hour + (sStart.minute / 60.0) + (sStart.second / 3600.0);
-
-        double endHour = sEnd.isAfter(endOfDay)
-            ? 24.0
-            : sEnd.hour + (sEnd.minute / 60.0) + (sEnd.second / 3600.0);
-
-        if (endHour > startHour) {
-          runningPeriods.add((start: startHour, end: endHour));
-        }
-      }
-    }
-
-    if (runningPeriods.isEmpty) {
-      return [
-        StateSegment(state: SystemState.idle, startHour: 0.0, endHour: 24.0),
-      ];
-    }
-
-    // 2. Merge overlapping periods
-    runningPeriods.sort((a, b) => a.start.compareTo(b.start));
-
-    List<({double start, double end})> mergedPeriods = [];
-    if (runningPeriods.isNotEmpty) {
-      var current = runningPeriods[0];
-      for (int i = 1; i < runningPeriods.length; i++) {
-        final next = runningPeriods[i];
-        if (next.start <= current.end) {
-          if (next.end > current.end) {
-            current = (start: current.start, end: next.end);
-          }
-        } else {
-          mergedPeriods.add(current);
-          current = next;
-        }
-      }
-      mergedPeriods.add(current);
-    }
-
-    // 3. Build final segments with idle gaps
-    List<StateSegment> segments = [];
-    double currentHour = 0.0;
-
-    for (final period in mergedPeriods) {
-      if (period.start > currentHour) {
-        segments.add(
-          StateSegment(
-            state: SystemState.idle,
-            startHour: currentHour,
-            endHour: period.start,
-          ),
-        );
-      }
-      segments.add(
-        StateSegment(
-          state: SystemState.running,
-          startHour: period.start,
-          endHour: period.end,
-        ),
-      );
-      currentHour = period.end;
-    }
-
-    if (currentHour < 24.0) {
-      segments.add(
-        StateSegment(
-          state: SystemState.idle,
-          startHour: currentHour,
-          endHour: 24.0,
-        ),
-      );
-    }
-
-    return segments;
+    emit(state.copyWith(selectedHistoryDate: event.date));
+    add(FetchMotorTimeline(date: event.date));
   }
 
   Future<void> _onChangeProductionYieldSession(

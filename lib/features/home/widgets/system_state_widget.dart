@@ -1,6 +1,38 @@
 import 'package:flutter/material.dart';
 
-enum SystemState { running, idle }
+enum SystemState { running, stopped, error, offline, unknown }
+
+SystemState? mapMotorStateString(String raw) {
+  switch (raw.toUpperCase()) {
+    case 'RUNNING':
+      return SystemState.running;
+    case 'STOPPED':
+      return SystemState.stopped;
+    case 'ERROR':
+      return SystemState.error;
+    case 'OFFLINE':
+      return SystemState.offline;
+    case 'UNKNOWN':
+      return SystemState.unknown;
+    default:
+      return null;
+  }
+}
+
+Color getSystemStateColor(SystemState state) {
+  switch (state) {
+    case SystemState.running:
+      return const Color(0xFF1abc9c);
+    case SystemState.stopped:
+      return const Color(0xFF95a5a6);
+    case SystemState.error:
+      return const Color(0xFFe74c3c);
+    case SystemState.offline:
+      return const Color(0xFF2c3e50);
+    case SystemState.unknown:
+      return const Color(0xFFbdc3c7);
+  }
+}
 
 class StateSegment {
   final SystemState state;
@@ -28,7 +60,10 @@ class SystemStateWidget extends StatelessWidget {
     Key? key,
     required this.segments,
     this.subtitle = 'Last 24 hours',
-    this.currentStatus = 'Running',
+    // Was 'Running' — an unsafe default that would silently show a live
+    // "Running" badge if this widget is ever built before the bloc has
+    // supplied a real currentStatus. 'Unknown' is a truthful placeholder.
+    this.currentStatus = 'Unknown',
     this.onStartSession,
     this.onStopSession,
     this.onHistoryPressed,
@@ -100,9 +135,7 @@ class SystemStateWidget extends StatelessWidget {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: isRunning
-                      ? const Color(0xFFD4F8F0)
-                      : const Color(0xFFF2F4F4),
+                  color: _statusBadgeColor(currentStatus).withOpacity(0.15),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
@@ -110,9 +143,7 @@ class SystemStateWidget extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 12.0,
                     fontWeight: FontWeight.w600,
-                    color: isRunning
-                        ? const Color(0xFF1abc9c)
-                        : const Color(0xFF95a5a6),
+                    color: _statusBadgeColor(currentStatus),
                   ),
                 ),
               ),
@@ -277,61 +308,46 @@ class SystemStateWidget extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         _legendItem('Running', _getStateColor(SystemState.running)),
-        const SizedBox(width: 48),
-        _legendItem('Idle', _getStateColor(SystemState.idle)),
+        _legendItem('Stopped', _getStateColor(SystemState.stopped)),
+        _legendItem('Error', _getStateColor(SystemState.error)),
+        _legendItem('Offline', _getStateColor(SystemState.offline)),
       ],
     );
   }
 
-  Widget _legendItem(String label, Color color) {
-    return Row(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-        ),
-        const SizedBox(width: 8),
-        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
-      ],
-    );
-  }
-
-  Color _getStateColor(SystemState state) {
-    switch (state) {
-      case SystemState.running:
+  Color _statusBadgeColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'running':
         return const Color(0xFF1abc9c);
-      case SystemState.idle:
+      case 'stopped':
+        return const Color(0xFF95a5a6);
+      case 'error':
+        return const Color(0xFFe74c3c);
+      case 'offline':
+        return const Color(0xFF2c3e50);
+      case 'unknown':
+        return const Color(0xFFbdc3c7);
+      default:
         return const Color(0xFF95a5a6);
     }
   }
-}
 
-class SystemStateExample extends StatelessWidget {
-  const SystemStateExample({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    final segments = [
-      StateSegment(state: SystemState.idle, startHour: 0, endHour: 6),
-      StateSegment(state: SystemState.running, startHour: 6, endHour: 14),
-      StateSegment(state: SystemState.idle, startHour: 14, endHour: 24),
-    ];
-
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: SystemStateWidget(
-            segments: segments,
-            subtitle: 'Last 24 hours',
-            currentStatus: 'Running',
-            onStartSession: () => debugPrint('Start session'),
-            onStopSession: () => debugPrint('Stop session'),
+  Widget _legendItem(String label, Color color) {
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Row(
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: color),
           ),
-        ),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+        ],
       ),
     );
   }
+
+  Color _getStateColor(SystemState state) => getSystemStateColor(state);
 }

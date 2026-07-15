@@ -13,12 +13,6 @@ class StartSessionRequested extends HomeEvent {}
 
 class StopSessionRequested extends HomeEvent {}
 
-class CheckActiveSessionRequested extends HomeEvent {
-  const CheckActiveSessionRequested();
-}
-
-class FetchSessionHistory extends HomeEvent {}
-
 class ChangeHistoryDate extends HomeEvent {
   final DateTime date;
   const ChangeHistoryDate(this.date);
@@ -33,4 +27,20 @@ class ChangeProductionYieldSession extends HomeEvent {
 
   @override
   List<Object?> get props => [sessionId];
+}
+
+/// Fetches /motor/timeline for the given date (defaults to today).
+/// Only affects segments (systemSegments / historySegments / timelineEntries).
+class FetchMotorTimeline extends HomeEvent {
+  final DateTime? date;
+  const FetchMotorTimeline({this.date});
+
+  @override
+  List<Object?> get props => [date];
+}
+
+/// Fetches /motor/status — the single source of truth for the live
+/// systemStatus badge (Running / Stopped / Error / Offline / Unknown).
+class FetchMotorStatus extends HomeEvent {
+  const FetchMotorStatus();
 }

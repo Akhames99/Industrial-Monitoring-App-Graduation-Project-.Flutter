@@ -4,18 +4,16 @@ import 'package:flutter/material.dart';
 
 class QualityItemCard extends StatelessWidget {
   final QualityItem item;
-  final Function(String)? onDismiss;
   final Function(String)? onConfirm;
-  final Function(String)? onSendToDataset;
-  final Function(String)? onRelabel;
+  final Function(String, String)? onRelabel;
+  final Function(String, String)? onEdit;
 
   const QualityItemCard({
     Key? key,
     required this.item,
-    this.onDismiss,
     this.onConfirm,
-    this.onSendToDataset,
     this.onRelabel,
+    this.onEdit,
   }) : super(key: key);
 
   @override
@@ -153,6 +151,29 @@ class QualityItemCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    // Good / Defected / Invalid badge for reviewed items,
+                    // consistent with the card used in quality_log_page.dart.
+                    if (item.reviewCategory != null) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: item.reviewCategory!.badgeColor,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          item.reviewCategory!.displayName,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: item.reviewCategory!.badgeTextColor,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
 
@@ -235,28 +256,12 @@ class QualityItemCard extends StatelessWidget {
 
   Widget _buildActionButtons(BuildContext context) {
     if (item.status == QualityItemStatus.reviewed) {
-      return Row(
-        children: [
-          Expanded(
-            child: _buildButton(
-              icon: Icons.delete_outline,
-              label: 'Dismiss',
-              backgroundColor: const Color(0xFFFEE8E8),
-              textColor: const Color(0xFFE74C3C),
-              onPressed: () => _showDismissModal(context),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _buildButton(
-              icon: Icons.send_outlined,
-              label: 'Send to dataset',
-              backgroundColor: const Color(0xFFEBF5FB),
-              textColor: Colors.blue[600]!,
-              onPressed: () => _showSendToDatasetModal(context),
-            ),
-          ),
-        ],
+      return _buildButton(
+        icon: Icons.edit_outlined,
+        label: 'Edit',
+        backgroundColor: Colors.grey[200]!,
+        textColor: Colors.grey[700]!,
+        onPressed: () => _showEditModal(context),
       );
     } else {
       return Row(
@@ -277,7 +282,7 @@ class QualityItemCard extends StatelessWidget {
               label: 'Confirm',
               backgroundColor: const Color(0xFFEBF5FB),
               textColor: Colors.blue[600]!,
-              onPressed: () => _showConfirmModal(context),
+              onPressed: () => _handleDirectConfirm(context),
             ),
           ),
         ],
@@ -325,47 +330,27 @@ class QualityItemCard extends StatelessWidget {
       builder: (context) => RelabelItemModal(
         item: item,
         onRelabel: (newLabel) {
-          onRelabel?.call(item.id);
+          onRelabel?.call(item.id, newLabel);
           debugPrint('Relabeled to: $newLabel');
         },
       ),
     );
   }
 
-  void _showConfirmModal(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => ConfirmDefectionModal(
-        item: item,
-        onConfirm: () {
-          onConfirm?.call(item.id);
-          debugPrint('Defection confirmed');
-        },
-      ),
-    );
+  void _handleDirectConfirm(BuildContext context) {
+    // Call confirm API directly without showing dialog
+    onConfirm?.call(item.id);
+    debugPrint('Inspection confirmed directly');
   }
 
-  void _showDismissModal(BuildContext context) {
+  void _showEditModal(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => DismissItemModal(
+      builder: (context) => RelabelItemModal(
         item: item,
-        onDismiss: () {
-          onDismiss?.call(item.id);
-          debugPrint('Item dismissed');
-        },
-      ),
-    );
-  }
-
-  void _showSendToDatasetModal(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => SendToDatasetModal(
-        item: item,
-        onSend: () {
-          onSendToDataset?.call(item.id);
-          debugPrint('Sent to dataset');
+        onRelabel: (newLabel) {
+          onEdit?.call(item.id, newLabel);
+          debugPrint('Item edited to: $newLabel');
         },
       ),
     );

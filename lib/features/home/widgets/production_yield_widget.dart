@@ -7,24 +7,31 @@ import 'package:app/core/utils/theme/app_fonts.dart';
 class ProductionYieldData {
   final int goodProducts;
   final int defectiveProducts;
+  final int invalidProducts;
   final String selectedPeriod;
   final DateTime date;
 
   ProductionYieldData({
     required this.goodProducts,
     required this.defectiveProducts,
+    this.invalidProducts = 0,
     this.selectedPeriod = 'today',
     required this.date,
   });
 
-  int get totalProducts => goodProducts + defectiveProducts;
-  double get goodPercentage => (goodProducts / totalProducts * 100);
-  double get defectivePercentage => (defectiveProducts / totalProducts * 100);
+  int get totalProducts => goodProducts + defectiveProducts + invalidProducts;
+  double get goodPercentage =>
+      totalProducts > 0 ? (goodProducts / totalProducts * 100) : 0.0;
+  double get defectivePercentage =>
+      totalProducts > 0 ? (defectiveProducts / totalProducts * 100) : 0.0;
+  double get invalidPercentage =>
+      totalProducts > 0 ? (invalidProducts / totalProducts * 100) : 0.0;
 
   Map<String, dynamic> toMap() {
     return <String, dynamic>{
       'goodProducts': goodProducts,
       'defectiveProducts': defectiveProducts,
+      'invalidProducts': invalidProducts,
       'selectedPeriod': selectedPeriod,
       'date': date.millisecondsSinceEpoch,
     };
@@ -34,6 +41,7 @@ class ProductionYieldData {
     return ProductionYieldData(
       goodProducts: map['goodProducts'] as int,
       defectiveProducts: map['defectiveProducts'] as int,
+      invalidProducts: map['invalidProducts'] as int? ?? 0,
       selectedPeriod: map['selectedPeriod'] as String,
       date: DateTime.fromMillisecondsSinceEpoch(map['date'] as int),
     );
@@ -42,12 +50,14 @@ class ProductionYieldData {
   ProductionYieldData copyWith({
     int? goodProducts,
     int? defectiveProducts,
+    int? invalidProducts,
     String? selectedPeriod,
     DateTime? date,
   }) {
     return ProductionYieldData(
       goodProducts: goodProducts ?? this.goodProducts,
       defectiveProducts: defectiveProducts ?? this.defectiveProducts,
+      invalidProducts: invalidProducts ?? this.invalidProducts,
       selectedPeriod: selectedPeriod ?? this.selectedPeriod,
       date: date ?? this.date,
     );
@@ -57,13 +67,11 @@ class ProductionYieldData {
 class ProductionYieldWidget extends StatefulWidget {
   final ProductionYieldData data;
   final Function(String)? onPeriodChanged;
-  final List<String> availableSessions;
 
   const ProductionYieldWidget({
     Key? key,
     required this.data,
     this.onPeriodChanged,
-    this.availableSessions = const [],
   }) : super(key: key);
 
   @override
@@ -108,7 +116,6 @@ class _ProductionYieldWidgetState extends State<ProductionYieldWidget> {
                   color: Colors.black87,
                 ),
               ),
-              _buildPeriodSelector(),
             ],
           ),
           const SizedBox(height: 20),
@@ -121,11 +128,17 @@ class _ProductionYieldWidgetState extends State<ProductionYieldWidget> {
                 label: 'Good',
                 value: widget.data.goodProducts,
               ),
-              const SizedBox(width: 32),
+              const SizedBox(width: 20),
               _buildStatItem(
                 color: const Color(0xFF1A1A2E),
                 label: 'Defected',
                 value: widget.data.defectiveProducts,
+              ),
+              const SizedBox(width: 20),
+              _buildStatItem(
+                color: const Color(0xFFFFB84D),
+                label: 'Invalid',
+                value: widget.data.invalidProducts,
               ),
             ],
           ),
@@ -231,33 +244,7 @@ class _ProductionYieldWidgetState extends State<ProductionYieldWidget> {
     );
   }
 
-  Widget _buildPeriodSelector() {
-    return GestureDetector(
-      onTap: _showPeriodMenu,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: Colors.grey[300]!, width: 1),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              selectedPeriod,
-              style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-            ),
-            const SizedBox(width: 6),
-            Icon(Icons.expand_more, size: 16, color: Colors.grey[500]),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildCircularProgress() {
-    final goodPercentage = widget.data.goodPercentage;
     final radius = 95.0; // 190x190 rect (95 * 2 = 190)
     const strokeWidth = 20.0;
 
@@ -279,9 +266,12 @@ class _ProductionYieldWidgetState extends State<ProductionYieldWidget> {
           CustomPaint(
             size: Size(radius * 2, radius * 2),
             painter: CircularProgressPainter(
-              percentage: goodPercentage,
+              goodPercentage: widget.data.goodPercentage,
+              defectivePercentage: widget.data.defectivePercentage,
+              invalidPercentage: widget.data.invalidPercentage,
               goodColor: const Color(0xFF4A7FFF),
               defectiveColor: const Color(0xFF1A1A2E),
+              invalidColor: const Color(0xFFFFB84D),
               strokeWidth: strokeWidth,
             ),
           ),
@@ -298,51 +288,24 @@ class _ProductionYieldWidgetState extends State<ProductionYieldWidget> {
       ),
     );
   }
-
-  void _showPeriodMenu() {
-    final periods = ['today', 'this week', 'this month', 'this year'];
-    final allOptions = [...periods, ...widget.availableSessions];
-
-    showMenu(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        MediaQuery.of(context).size.width - 150,
-        350,
-        0,
-        0,
-      ),
-      items: allOptions
-          .map(
-            (option) => PopupMenuItem(
-              value: option,
-              child: Text(
-                option.startsWith('today') || periods.contains(option)
-                    ? option
-                    : 'Session $option',
-              ),
-              onTap: () {
-                setState(() {
-                  selectedPeriod = option;
-                });
-                widget.onPeriodChanged?.call(option);
-              },
-            ),
-          )
-          .toList(),
-    );
-  }
 }
 
 class CircularProgressPainter extends CustomPainter {
-  final double percentage;
+  final double goodPercentage;
+  final double defectivePercentage;
+  final double invalidPercentage;
   final Color goodColor;
   final Color defectiveColor;
+  final Color invalidColor;
   final double strokeWidth;
 
   CircularProgressPainter({
-    required this.percentage,
+    required this.goodPercentage,
+    required this.defectivePercentage,
+    required this.invalidPercentage,
     required this.goodColor,
     required this.defectiveColor,
+    required this.invalidColor,
     required this.strokeWidth,
   });
 
@@ -350,6 +313,18 @@ class CircularProgressPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
+
+    final totalPercentage =
+        goodPercentage + defectivePercentage + invalidPercentage;
+
+    if (totalPercentage == 0) {
+      final emptyPaint = Paint()
+        ..color = Colors.grey[300]!
+        ..strokeWidth = strokeWidth
+        ..style = PaintingStyle.stroke;
+      canvas.drawCircle(center, radius - strokeWidth / 2, emptyPaint);
+      return;
+    }
 
     final goodPaint = Paint()
       ..color = goodColor
@@ -363,10 +338,20 @@ class CircularProgressPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
 
-    const startAngle = -90 * 3.14159 / 180;
-    final goodAngle = (percentage / 100) * 2 * 3.14159;
-    final defectiveAngle = 2 * 3.14159 - goodAngle;
+    final invalidPaint = Paint()
+      ..color = invalidColor
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
 
+    const startAngle = -90 * 3.14159 / 180;
+
+    // Convert percentages to angles
+    final goodAngle = (goodPercentage / 100) * 2 * 3.14159;
+    final defectiveAngle = (defectivePercentage / 100) * 2 * 3.14159;
+    final invalidAngle = (invalidPercentage / 100) * 2 * 3.14159;
+
+    // Draw Good segment
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius - strokeWidth / 2),
       startAngle,
@@ -375,6 +360,7 @@ class CircularProgressPainter extends CustomPainter {
       goodPaint,
     );
 
+    // Draw Defective segment
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius - strokeWidth / 2),
       startAngle + goodAngle,
@@ -382,11 +368,22 @@ class CircularProgressPainter extends CustomPainter {
       false,
       defectivePaint,
     );
+
+    // Draw Invalid segment
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius - strokeWidth / 2),
+      startAngle + goodAngle + defectiveAngle,
+      invalidAngle,
+      false,
+      invalidPaint,
+    );
   }
 
   @override
   bool shouldRepaint(CircularProgressPainter oldDelegate) {
-    return oldDelegate.percentage != percentage;
+    return oldDelegate.goodPercentage != goodPercentage ||
+        oldDelegate.defectivePercentage != defectivePercentage ||
+        oldDelegate.invalidPercentage != invalidPercentage;
   }
 }
 

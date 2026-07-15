@@ -17,58 +17,15 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  List<StateSegment> systemStateSegments = [
-    StateSegment(state: SystemState.idle, startHour: 0, endHour: 4),
-    StateSegment(state: SystemState.running, startHour: 4, endHour: 10),
-    StateSegment(state: SystemState.idle, startHour: 10, endHour: 12),
-  ];
-  ProductionYieldData productionYieldData = ProductionYieldData(
-    goodProducts: 2160,
-    defectiveProducts: 540,
-    selectedPeriod: 'today',
-    date: DateTime.now(),
-  );
-  DefectionCategorization defectionData = DefectionCategorization(
-    categories: [
-      DefectCategory(
-        name: 'Cracks',
-        count: 261,
-        color: const Color(0xFF1A1A2E),
-      ),
-      DefectCategory(
-        name: 'Scratch',
-        count: 199,
-        color: const Color(0xFF9B59B6),
-      ),
-      DefectCategory(name: 'Labels', count: 80, color: const Color(0xFFE67E22)),
-    ],
-    period: 'today',
-    date: DateTime.now(),
-  );
-  List<Alert> alertsList = [];
-
   @override
   void initState() {
     super.initState();
 
-    // Fetch initial data
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<HomeBloc>().add(HomeFetchData());
-      context.read<HomeBloc>().add(FetchSessionHistory());
+      context.read<HomeBloc>().add(const FetchMotorStatus());
+      context.read<HomeBloc>().add(const FetchMotorTimeline());
     });
-  }
-
-  void _onProductionYieldPeriodChanged(String period) {
-    if (period == 'today' ||
-        period == 'this week' ||
-        period == 'this month' ||
-        period == 'this year') {
-      // Handle period if needed, or just clear session
-      context.read<HomeBloc>().add(const ChangeProductionYieldSession(null));
-    } else {
-      // Handle session ID
-      context.read<HomeBloc>().add(ChangeProductionYieldSession(period));
-    }
   }
 
   void _onDefectionPeriodChanged(String period) {
@@ -122,7 +79,6 @@ class _HomePageState extends State<HomePage> {
             onRefresh: () async {
               final bloc = context.read<HomeBloc>();
               bloc.add(HomeFetchData());
-              // Wait for the status to change from loading
               await bloc.stream.firstWhere(
                 (state) => state.status != HomeStatus.loading,
               );
@@ -137,10 +93,10 @@ class _HomePageState extends State<HomePage> {
                       Row(
                         children: [
                           InkWell(
-                            onTap: () => Navigator.pushNamed(
+                            onTap: () => Navigator.of(
                               context,
-                              AppRoutes.settings,
-                            ),
+                              rootNavigator: true,
+                            ).pushNamed(AppRoutes.settings),
                             child: Container(
                               decoration: BoxDecoration(
                                 color: AppColors.purple,
@@ -204,9 +160,7 @@ class _HomePageState extends State<HomePage> {
                   BlocBuilder<HomeBloc, HomeState>(
                     builder: (context, state) {
                       return SystemStateWidget(
-                        segments: state.systemSegments.isNotEmpty
-                            ? state.systemSegments
-                            : systemStateSegments,
+                        segments: state.systemSegments,
                         subtitle: 'Last 24 hours',
                         currentStatus: state.systemStatus,
                         isLoading: state.isSessionLoading,
@@ -221,54 +175,47 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(height: 24.0),
                   BlocBuilder<HomeBloc, HomeState>(
                     builder: (context, state) {
-                      final yieldData = state.productionYield != null
-                          ? ProductionYieldData(
-                              goodProducts: state.productionYield!.goodProducts,
-                              defectiveProducts:
-                                  state.productionYield!.defectiveProducts,
-                              selectedPeriod: state.selectedSessionId != null
-                                  ? 'Session ${state.selectedSessionId}'
-                                  : state.productionYield!.period,
-                              date: state.productionYield!.timestamp,
-                            )
-                          : productionYieldData;
+                      if (state.productionYield == null) {
+                        return const SizedBox.shrink();
+                      }
 
-                      // Add sessions to available options
-                      final sessionOptions = state.allSessions
-                          .map((s) => s.id.toString())
-                          .toList();
-
-                      return ProductionYieldWidget(
-                        data: yieldData,
-                        onPeriodChanged: _onProductionYieldPeriodChanged,
-                        availableSessions: sessionOptions,
+                      final yieldData = ProductionYieldData(
+                        goodProducts: state.productionYield!.goodProducts,
+                        defectiveProducts:
+                            state.productionYield!.defectiveProducts,
+                        invalidProducts: state.productionYield!.invalidProducts,
+                        selectedPeriod: state.selectedSessionId != null
+                            ? 'Session ${state.selectedSessionId}'
+                            : state.productionYield!.period,
+                        date: state.productionYield!.timestamp,
                       );
+                      return ProductionYieldWidget(data: yieldData);
                     },
                   ),
                   const SizedBox(height: 24.0),
                   BlocBuilder<HomeBloc, HomeState>(
                     builder: (context, state) {
-                      final defection = state.defectionData != null
-                          ? DefectionCategorization(
-                              categories: state.defectionData!.categories
-                                  .map(
-                                    (c) => DefectCategory(
-                                      name: c.name,
-                                      count: c.count,
-                                      color: Color(
-                                        int.parse(
-                                          c.color.replaceFirst('#', '0xFF'),
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                              period: state.selectedSessionId != null
-                                  ? 'Session ${state.selectedSessionId}'
-                                  : state.defectionData!.period,
-                              date: state.defectionData!.timestamp,
+                      if (state.defectionData == null) {
+                        return const SizedBox.shrink();
+                      }
+
+                      final defection = DefectionCategorization(
+                        categories: state.defectionData!.categories
+                            .map(
+                              (c) => DefectCategory(
+                                name: c.name,
+                                count: c.count,
+                                color: Color(
+                                  int.parse(c.color.replaceFirst('#', '0xFF')),
+                                ),
+                              ),
                             )
-                          : defectionData;
+                            .toList(),
+                        period: state.selectedSessionId != null
+                            ? 'Session ${state.selectedSessionId}'
+                            : state.defectionData!.period,
+                        date: state.defectionData!.timestamp,
+                      );
 
                       return DefectionCategorizationWidget(
                         data: defection,
@@ -277,10 +224,14 @@ class _HomePageState extends State<HomePage> {
                     },
                   ),
                   const SizedBox(height: 24.0),
-                  ActiveAlertsWidget(
-                    alerts: alertsList,
-                    onAlertAcknowledged: _onAlertAcknowledged,
-                    onAlertDismissed: _onAlertDismissed,
+                  BlocBuilder<HomeBloc, HomeState>(
+                    builder: (context, state) {
+                      return ActiveAlertsWidget(
+                        alerts: state.alerts,
+                        onAlertAcknowledged: _onAlertAcknowledged,
+                        onAlertDismissed: _onAlertDismissed,
+                      );
+                    },
                   ),
                   const SizedBox(height: 24.0),
                 ],

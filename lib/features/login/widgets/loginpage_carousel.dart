@@ -49,7 +49,7 @@ class _LoginPageCarouselState extends State<LoginPageCarousel> {
             items: items,
             carouselController: _controller,
             options: CarouselOptions(
-              autoPlay: false,
+              autoPlay: true,
               enlargeCenterPage: true,
               aspectRatio: 1.5,
               viewportFraction: 1.0,

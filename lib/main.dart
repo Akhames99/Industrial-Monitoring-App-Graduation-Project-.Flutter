@@ -14,30 +14,44 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final apiClient = ApiClient();
-  final token = await apiClient.getStoredToken();
+  await apiClient.getStoredToken();
+  await apiClient.loadSessionId();
 
-  LoginCubit? loginCubit;
-  String initialRoute;
+  final loginCubit = LoginCubit(
+    apiClient: apiClient,
+    authRepository: AuthRepository(apiClient: apiClient),
+  );
 
-  if (token != null) {
+  String initialRoute = AppRoutes.login;
+
+  // Only attempt auto-login if both token and session exist
+  if (apiClient.authToken != null && apiClient.sessionId != null) {
     final prefs = await SharedPreferences.getInstance();
     final savedUser = prefs.getString('saved_user');
 
     if (savedUser != null) {
-      final user = UserProfileResponse.fromJson(
-        jsonDecode(savedUser) as Map<String, dynamic>,
-      );
-      final loginResponse = LoginResponse(token: token, user: user);
-      loginCubit = LoginCubit(
-        apiClient: apiClient,
-        authRepository: AuthRepository(apiClient: apiClient),
-      )..emit(LoginSuccess(loginResponse: loginResponse));
-      initialRoute = AppRoutes.navbar;
-    } else {
-      initialRoute = AppRoutes.login;
+      try {
+        // No backend pre-flight check anymore (session-status endpoint was
+        // removed). Trust the locally stored credentials and route straight
+        // in. If the session is actually invalid/expired, the global 401
+        // interceptor (onSessionExpired) will catch it on the first real API
+        // call and redirect to login automatically.
+        final user = UserProfileResponse.fromJson(
+          jsonDecode(savedUser) as Map<String, dynamic>,
+        );
+        final loginResponse = LoginResponse(
+          token: apiClient.authToken!,
+          user: user,
+          sessionId: apiClient.sessionId!,
+        );
+        loginCubit.emit(LoginSuccess(loginResponse: loginResponse));
+        initialRoute = AppRoutes.navbar;
+      } catch (e) {
+        // Corrupt/unparseable saved user data — send to login
+        await apiClient.clearAuthToken();
+        initialRoute = AppRoutes.login;
+      }
     }
-  } else {
-    initialRoute = AppRoutes.login;
   }
 
   runApp(
@@ -52,30 +66,29 @@ Future<void> main() async {
 class MyApp extends StatelessWidget {
   final String initialRoute;
   final ApiClient apiClient;
-  final LoginCubit? loginCubit;
+  final LoginCubit loginCubit;
 
   const MyApp({
     super.key,
     required this.initialRoute,
     required this.apiClient,
-    this.loginCubit,
+    required this.loginCubit,
   });
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) =>
-          loginCubit ??
-          LoginCubit(
-            apiClient: apiClient,
-            authRepository: AuthRepository(apiClient: apiClient),
-          ),
+    // Wire the global 401 session-expired handler
+    AppRouter.initSessionExpiredHandler();
+
+    return BlocProvider.value(
+      value: loginCubit,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'Industrial Monitoring App',
         theme: AppTheme.primary,
         onGenerateRoute: AppRouter.onGenerateRoute,
         initialRoute: initialRoute,
+        navigatorKey: AppRouter.navigatorKey,
       ),
     );
   }

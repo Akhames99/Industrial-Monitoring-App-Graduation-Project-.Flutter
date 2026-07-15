@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:app/core/utils/theme/app_colors.dart';
 
-class TextFieldElement extends StatelessWidget {
+class TextFieldElement extends StatefulWidget {
   final String title;
   final IconData icon;
   final TextEditingController? controller;
@@ -18,13 +18,41 @@ class TextFieldElement extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  State<TextFieldElement> createState() => _TextFieldElementState();
+}
+
+class _TextFieldElementState extends State<TextFieldElement> {
+  late bool _isObscured;
+
+  @override
+  void initState() {
+    super.initState();
+    _isObscured = widget.obscureText;
+  }
+
+  void _toggleVisibility() {
+    setState(() {
+      _isObscured = !_isObscured;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return TextField(
-      controller: controller,
-      obscureText: obscureText,
+      controller: widget.controller,
+      obscureText: _isObscured,
       decoration: InputDecoration(
-        hintText: title,
-        prefixIcon: Icon(icon, color: AppColors.grey),
+        hintText: widget.title,
+        prefixIcon: Icon(widget.icon, color: AppColors.grey),
+        suffixIcon: widget.obscureText
+            ? IconButton(
+                icon: Icon(
+                  _isObscured ? Icons.visibility_off : Icons.visibility,
+                  color: AppColors.grey,
+                ),
+                onPressed: _toggleVisibility,
+              )
+            : null,
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8.0)),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8.0),

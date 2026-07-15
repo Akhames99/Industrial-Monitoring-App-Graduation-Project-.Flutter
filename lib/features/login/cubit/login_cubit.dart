@@ -26,9 +26,13 @@ class LoginCubit extends Cubit<LoginState> {
         username: username,
         password: password,
       );
+      debugPrint(
+        '=== FULL LOGIN RESPONSE: ${jsonEncode(loginResponse.toJson())}',
+      );
 
       // Save token for future authenticated requests
       await apiClient.setAuthToken(loginResponse.token);
+      await apiClient.setSessionId(loginResponse.sessionId);
       debugPrint('=== TOKEN: ${loginResponse.token}');
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
@@ -95,6 +99,7 @@ class LoginCubit extends Cubit<LoginState> {
     emit(const LoginLoading());
     try {
       final token = await apiClient.getStoredToken();
+      await apiClient.loadSessionId();
       if (token == null || token.isEmpty) {
         emit(const LoginInitial());
         return;
@@ -113,7 +118,11 @@ class LoginCubit extends Cubit<LoginState> {
       );
       emit(
         LoginSuccess(
-          loginResponse: LoginResponse(token: token, user: user),
+          loginResponse: LoginResponse(
+            token: token,
+            user: user,
+            sessionId: apiClient.sessionId ?? '',
+          ),
         ),
       );
     } catch (e) {

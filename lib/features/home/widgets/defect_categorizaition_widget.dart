@@ -199,19 +199,29 @@ class DefectionCategorizationExample extends StatelessWidget {
     final data = DefectionCategorization(
       categories: [
         DefectCategory(
-          name: 'Cracks',
-          count: 261,
+          name: 'No_cap',
+          count: 45,
           color: const Color(0xFF1A1A2E),
         ),
         DefectCategory(
-          name: 'Scratch',
-          count: 199,
+          name: 'Crooked_cap',
+          count: 32,
           color: const Color(0xFF9B59B6),
         ),
         DefectCategory(
-          name: 'Labels',
-          count: 80,
+          name: 'Empty_bottle',
+          count: 28,
           color: const Color(0xFFE67E22),
+        ),
+        DefectCategory(
+          name: 'No_label',
+          count: 18,
+          color: const Color(0xFFFF6B6B),
+        ),
+        DefectCategory(
+          name: 'No_detection',
+          count: 12,
+          color: const Color(0xFF4ECDC4),
         ),
       ],
       date: DateTime.now(),

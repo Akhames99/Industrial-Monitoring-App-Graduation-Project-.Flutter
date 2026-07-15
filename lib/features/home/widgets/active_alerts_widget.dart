@@ -1,78 +1,5 @@
+import 'package:app/features/home/views/models/active_alerts_model.dart';
 import 'package:flutter/material.dart';
-
-enum AlertSeverity { warning, critical, info }
-
-class Alert {
-  final String id;
-  final String title;
-  final String description;
-  final AlertSeverity severity;
-  final DateTime createdAt;
-  bool isAcknowledged;
-
-  Alert({
-    required this.id,
-    required this.title,
-    required this.description,
-    this.severity = AlertSeverity.warning,
-    required this.createdAt,
-    this.isAcknowledged = false,
-  });
-
-  Alert copyWith({
-    String? id,
-    String? title,
-    String? description,
-    AlertSeverity? severity,
-    DateTime? createdAt,
-    bool? isAcknowledged,
-  }) {
-    return Alert(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      description: description ?? this.description,
-      severity: severity ?? this.severity,
-      createdAt: createdAt ?? this.createdAt,
-      isAcknowledged: isAcknowledged ?? this.isAcknowledged,
-    );
-  }
-
-  factory Alert.fromJson(Map<String, dynamic> json) {
-    return Alert(
-      id: json['id'] ?? '',
-      title: json['title'] ?? '',
-      description: json['description'] ?? '',
-      severity: _parseSeverity(json['severity']),
-      createdAt: DateTime.parse(json['createdAt'] ?? DateTime.now().toString()),
-      isAcknowledged: json['isAcknowledged'] ?? false,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'title': title,
-      'description': description,
-      'severity': severity.toString(),
-      'createdAt': createdAt.toIso8601String(),
-      'isAcknowledged': isAcknowledged,
-    };
-  }
-
-  static AlertSeverity _parseSeverity(dynamic value) {
-    if (value is String) {
-      switch (value.toLowerCase()) {
-        case 'critical':
-          return AlertSeverity.critical;
-        case 'info':
-          return AlertSeverity.info;
-        default:
-          return AlertSeverity.warning;
-      }
-    }
-    return AlertSeverity.warning;
-  }
-}
 
 class ActiveAlertsWidget extends StatefulWidget {
   final List<Alert> alerts;
@@ -111,7 +38,10 @@ class _ActiveAlertsWidgetState extends State<ActiveAlertsWidget> {
     setState(() {
       final index = _alerts.indexWhere((alert) => alert.id == alertId);
       if (index != -1) {
-        _alerts[index] = _alerts[index].copyWith(isAcknowledged: true);
+        _alerts[index] = _alerts[index].copyWith(
+          status: AlertStatus.acknowledged,
+          acknowledgedAt: DateTime.now(),
+        );
       }
     });
     widget.onAlertAcknowledged?.call(alertId);
@@ -153,9 +83,9 @@ class _ActiveAlertsWidgetState extends State<ActiveAlertsWidget> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
+              const Text(
                 'Active Alerts',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: Colors.black87,
@@ -164,7 +94,17 @@ class _ActiveAlertsWidgetState extends State<ActiveAlertsWidget> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _getAlertBadgeColor(activeAlerts.first.severity),
+                  color: _getAlertBadgeColor(
+                    activeAlerts.any(
+                          (a) => a.severity == AlertSeverity.critical,
+                        )
+                        ? AlertSeverity.critical
+                        : activeAlerts.any(
+                            (a) => a.severity == AlertSeverity.warning,
+                          )
+                        ? AlertSeverity.warning
+                        : AlertSeverity.info,
+                  ),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -179,7 +119,6 @@ class _ActiveAlertsWidgetState extends State<ActiveAlertsWidget> {
             ],
           ),
           const SizedBox(height: 16),
-
           ListView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -268,7 +207,6 @@ class _ActiveAlertsWidgetState extends State<ActiveAlertsWidget> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Alert header with icon and title
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -301,7 +239,6 @@ class _ActiveAlertsWidgetState extends State<ActiveAlertsWidget> {
             ],
           ),
           const SizedBox(height: 12),
-
           Align(
             alignment: Alignment.centerRight,
             child: GestureDetector(

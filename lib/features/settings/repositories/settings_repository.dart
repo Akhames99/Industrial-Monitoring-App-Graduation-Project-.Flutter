@@ -6,74 +6,30 @@ import 'package:flutter/foundation.dart';
 class SettingsRepository {
   final ApiClient _apiClient = ApiClient();
 
-  // Get user profile
-  Future<UserProfileResponse> getUserProfile() async {
-    try {
-      final response = await _apiClient.get(Endpoints.userProfile);
-
-      if (response.statusCode == 200 && response.data != null) {
-        return UserProfileResponse.fromJson(
-          response.data as Map<String, dynamic>,
-        );
-      } else {
-        throw ApiException(
-          message: 'Failed to fetch user profile',
-          statusCode: response.statusCode,
-        );
-      }
-    } catch (e) {
-      if (e is ApiException) {
-        rethrow;
-      }
-      throw ApiException(message: 'Error fetching user profile: $e');
-    }
-  }
-
-  // Update user profile
-  Future<UserProfileResponse> updateUserProfile({
-    required String fullName,
-    required String role,
-    required String username,
-  }) async {
-    try {
-      final request = UpdateProfileRequest(
-        fullName: fullName,
-        role: role,
-        username: username,
-      );
-
-      final response = await _apiClient.put(
-        Endpoints.updateProfile,
-        data: request.toJson(),
-      );
-
-      if (response.statusCode == 200 && response.data != null) {
-        return UserProfileResponse.fromJson(
-          response.data as Map<String, dynamic>,
-        );
-      } else {
-        throw ApiException(
-          message: 'Failed to update user profile',
-          statusCode: response.statusCode,
-        );
-      }
-    } catch (e) {
-      if (e is ApiException) {
-        rethrow;
-      }
-      throw ApiException(message: 'Error updating user profile: $e');
-    }
-  }
-
   // Get team members
   Future<TeamMembersListResponse> getTeamMembers() async {
     try {
-      final response = await _apiClient.get(Endpoints.teamMembers);
+      final response = await _apiClient.get(Endpoints.getUsers);
+      debugPrint('GET /users status: ${response.statusCode}');
+      debugPrint('GET /users response: ${response.data}');
 
       if (response.statusCode == 200 && response.data != null) {
-        return TeamMembersListResponse.fromJson(
-          response.data as Map<String, dynamic>,
-        );
+        if (response.data is List) {
+          final List<dynamic> list = response.data as List;
+          final members = list
+              .map(
+                (e) => TeamMemberResponse.fromJson(e as Map<String, dynamic>),
+              )
+              .toList();
+          return TeamMembersListResponse(
+            members: members,
+            total: members.length,
+          );
+        } else {
+          return TeamMembersListResponse.fromJson(
+            response.data as Map<String, dynamic>,
+          );
+        }
       } else {
         throw ApiException(
           message: 'Failed to fetch team members',
@@ -95,16 +51,10 @@ class SettingsRepository {
     required String role,
   }) async {
     try {
-      final request = AddTeamMemberRequest(
-        username: username,
-        password: password,
-        role: role,
-      );
-
-      debugPrint('Adding team member: ${request.toJson()}');
+      debugPrint('Adding team member: $username, $role');
       final response = await _apiClient.post(
         Endpoints.addTeamMember,
-        data: request.toJson(),
+        data: {'username': username, 'password': password, 'user_role': role},
       );
 
       debugPrint('Add member response status: ${response.statusCode}');
@@ -116,32 +66,19 @@ class SettingsRepository {
           response.data as Map<String, dynamic>,
         );
       } else {
+        final message = response.data is Map
+            ? (response.data['detail'] ??
+                  response.data['message'] ??
+                  'Failed to add team member')
+            : 'Failed to add team member';
         throw ApiException(
-          message: 'Failed to add team member',
+          message: message.toString(),
           statusCode: response.statusCode,
         );
       }
     } catch (e) {
-      if (e is ApiException) {
-        rethrow;
-      }
+      if (e is ApiException) rethrow;
       throw ApiException(message: 'Error adding team member: $e');
-    }
-  }
-
-  // Remove team member
-  Future<bool> removeTeamMember(String memberId) async {
-    try {
-      final endpoint = Endpoints.removeTeamMember.replaceAll('{id}', memberId);
-
-      final response = await _apiClient.delete(endpoint);
-
-      return response.statusCode == 200 || response.statusCode == 204;
-    } catch (e) {
-      if (e is ApiException) {
-        rethrow;
-      }
-      throw ApiException(message: 'Error removing team member: $e');
     }
   }
 
@@ -167,8 +104,8 @@ class SettingsRepository {
       } else {
         final message = response.data is Map
             ? (response.data['detail'] ??
-                response.data['message'] ??
-                'Failed to change password')
+                  response.data['message'] ??
+                  'Failed to change password')
             : 'Failed to change password';
         throw ApiException(
           message: message.toString(),
@@ -205,8 +142,8 @@ class SettingsRepository {
       } else {
         final message = response.data is Map
             ? (response.data['detail'] ??
-                response.data['message'] ??
-                'Failed to change username')
+                  response.data['message'] ??
+                  'Failed to change username')
             : 'Failed to change username';
         throw ApiException(
           message: message.toString(),
@@ -243,8 +180,8 @@ class SettingsRepository {
       } else {
         final message = response.data is Map
             ? (response.data['detail'] ??
-                response.data['message'] ??
-                'Failed to change role')
+                  response.data['message'] ??
+                  'Failed to change role')
             : 'Failed to change role';
         throw ApiException(
           message: message.toString(),
@@ -259,24 +196,31 @@ class SettingsRepository {
     }
   }
 
-  // Get security settings
-  Future<Map<String, dynamic>> getSecuritySettings() async {
+  Future<void> deleteMember({required String userId}) async {
     try {
-      final response = await _apiClient.get(Endpoints.securitySettings);
+      final endpoint = _apiClient.withUserId(Endpoints.deleteUser, userId);
+      debugPrint('Deleting user $userId');
+      final response = await _apiClient.delete(endpoint);
 
-      if (response.statusCode == 200 && response.data != null) {
-        return response.data as Map<String, dynamic>;
-      } else {
+      debugPrint('Delete user response status: ${response.statusCode}');
+      debugPrint('Delete user response data: ${response.data}');
+
+      if (response.statusCode != 200) {
+        final message = response.data is Map
+            ? (response.data['detail'] ??
+                  response.data['message'] ??
+                  'Failed to delete member')
+            : 'Failed to delete member';
         throw ApiException(
-          message: 'Failed to fetch security settings',
+          message: message.toString(),
           statusCode: response.statusCode,
         );
       }
     } catch (e) {
-      if (e is ApiException) {
-        rethrow;
-      }
-      throw ApiException(message: 'Error fetching security settings: $e');
+      if (e is ApiException) rethrow;
+      throw ApiException(message: 'Error deleting member: $e');
     }
   }
 }
+
+//Delete User

@@ -4,6 +4,7 @@ import 'package:app/features/home/widgets/system_state_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
+import 'package:app/core/api/api_response_models.dart';
 
 class SessionHistoryPage extends StatefulWidget {
   const SessionHistoryPage({super.key});
@@ -16,7 +17,7 @@ class _SessionHistoryPageState extends State<SessionHistoryPage> {
   @override
   void initState() {
     super.initState();
-    context.read<HomeBloc>().add(FetchSessionHistory());
+    context.read<HomeBloc>().add(const FetchMotorTimeline());
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -123,16 +124,17 @@ class _SessionHistoryPageState extends State<SessionHistoryPage> {
                     ),
                   ),
                   const SizedBox(height: 32),
-                  if (state.status == HomeStatus.loading &&
-                      state.allSessions.isEmpty)
-                    const Expanded(
-                      child: Center(
+                  if (state.isHistoryLoading && state.timelineEntries.isEmpty)
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.5,
+                      child: const Center(
                         child: CircularProgressIndicator(color: AppColors.blue),
                       ),
                     )
-                  else if (state.status == HomeStatus.failure &&
-                      state.allSessions.isEmpty)
-                    Expanded(
+                  else if (state.historyErrorMessage != null &&
+                      state.timelineEntries.isEmpty)
+                    SizedBox(
+                      height: MediaQuery.of(context).size.height * 0.5,
                       child: Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -144,12 +146,12 @@ class _SessionHistoryPageState extends State<SessionHistoryPage> {
                             ),
                             const SizedBox(height: 16),
                             Text(
-                              state.errorMessage ?? 'Failed to load history',
+                              state.historyErrorMessage!,
                               textAlign: TextAlign.center,
                             ),
                             TextButton(
                               onPressed: () => context.read<HomeBloc>().add(
-                                FetchSessionHistory(),
+                                ChangeHistoryDate(state.selectedHistoryDate),
                               ),
                               child: const Text('Retry'),
                             ),
@@ -166,19 +168,19 @@ class _SessionHistoryPageState extends State<SessionHistoryPage> {
                     ),
                     const SizedBox(height: 32),
                     const Text(
-                      'Session Details',
+                      'State Timeline',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 16),
-                    if (state.allSessions.isEmpty)
+                    if (state.timelineEntries.isEmpty)
                       const Center(
-                        child: Text('No sessions found for this day'),
+                        child: Text('No timeline data found for this day'),
                       )
                     else
-                      ..._buildSessionList(state, dateStr),
+                      ..._buildTimelineList(state.timelineEntries),
                   ],
                 ],
               ),
@@ -189,85 +191,59 @@ class _SessionHistoryPageState extends State<SessionHistoryPage> {
     );
   }
 
-  List<Widget> _buildSessionList(HomeState state, String dateStr) {
-    final now = DateTime.now();
-    final startOfDay = DateTime(
-      state.selectedHistoryDate.year,
-      state.selectedHistoryDate.month,
-      state.selectedHistoryDate.day,
-    );
-    final endOfDay = DateTime(
-      state.selectedHistoryDate.year,
-      state.selectedHistoryDate.month,
-      state.selectedHistoryDate.day,
-      23,
-      59,
-      59,
-      999,
-    );
-
-    final daySessions = state.allSessions.where((s) {
-      final sStart = s.startTime.toLocal();
-      final sEnd = (s.stopTime ?? now).toLocal();
-      return sStart.isBefore(endOfDay) && sEnd.isAfter(startOfDay);
-    }).toList();
-
-    daySessions.sort((a, b) => b.startTime.compareTo(a.startTime));
-
-    if (daySessions.isEmpty) {
-      return [const Center(child: Text('No active sessions in this period'))];
-    }
-
+  List<Widget> _buildTimelineList(List<MotorTimelineEntryResponse> entries) {
     final timeFormat = DateFormat('HH:mm:ss');
+    final sorted = List<MotorTimelineEntryResponse>.from(entries)
+      ..sort((a, b) => b.startTime.compareTo(a.startTime));
 
-    return daySessions.map((session) {
-      final sStart = session.startTime.toLocal();
-      final sEnd = session.stopTime?.toLocal();
-      final duration = sEnd != null
-          ? sEnd.difference(sStart)
-          : DateTime.now().difference(sStart);
+    return sorted.map((entry) {
+      final state = mapMotorStateString(entry.state) ?? SystemState.unknown;
+      final color = getSystemStateColor(state);
+      final start = entry.startTime.toLocal();
+      final end = entry.endTime.toLocal();
+      final duration = end.difference(start);
+
+      // Guard against an empty state string from the API, which would
+      // otherwise throw a RangeError on entry.state[0] below.
+      final label = entry.state.isEmpty
+          ? 'Unknown'
+          : entry.state[0].toUpperCase() +
+                entry.state.substring(1).toLowerCase();
 
       return Card(
         margin: const EdgeInsets.only(bottom: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: ListTile(
           leading: CircleAvatar(
-            backgroundColor: session.stopTime == null
-                ? const Color(0xFF1abc9c).withOpacity(0.1)
-                : Colors.grey[100],
-            child: Icon(
-              session.stopTime == null ? Icons.play_arrow : Icons.stop,
-              color: session.stopTime == null
-                  ? const Color(0xFF1abc9c)
-                  : Colors.grey[600],
-            ),
+            backgroundColor: color.withOpacity(0.1),
+            child: Icon(_iconForState(state), color: color),
           ),
-          title: Text('Session #${session.id}'),
+          title: Text(label),
           subtitle: Text(
-            '${timeFormat.format(sStart)} - ${sEnd != null ? timeFormat.format(sEnd) : 'Running...'}',
+            '${timeFormat.format(start)} - ${timeFormat.format(end)}',
           ),
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                _formatDuration(duration),
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              if (session.stopTime == null)
-                const Text(
-                  'ACTIVE',
-                  style: TextStyle(
-                    color: Color(0xFF1abc9c),
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-            ],
+          trailing: Text(
+            _formatDuration(duration),
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
         ),
       );
     }).toList();
+  }
+
+  IconData _iconForState(SystemState state) {
+    switch (state) {
+      case SystemState.running:
+        return Icons.play_arrow;
+      case SystemState.stopped:
+        return Icons.stop;
+      case SystemState.error:
+        return Icons.error_outline;
+      case SystemState.offline:
+        return Icons.power_off;
+      case SystemState.unknown:
+        return Icons.help_outline;
+    }
   }
 
   String _formatDuration(Duration d) {
