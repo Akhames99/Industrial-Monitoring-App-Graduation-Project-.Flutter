@@ -452,12 +452,22 @@ class QualityItemsListResponse {
   final int pendingCount;
   @JsonKey(name: 'reviewed_count')
   final int reviewedCount;
+  final int currentPage;
+  final int totalPages;
+  final bool hasNext;
+  final bool hasPrevious;
+  final Set<String> pendingItemIds;
 
   QualityItemsListResponse({
     required this.items,
     required this.total,
     required this.pendingCount,
     required this.reviewedCount,
+    this.currentPage = 1,
+    this.totalPages = 1,
+    this.hasNext = false,
+    this.hasPrevious = false,
+    this.pendingItemIds = const {},
   });
 
   factory QualityItemsListResponse.fromJson(Map<String, dynamic> json) =>

@@ -6,6 +6,9 @@ import 'package:app/core/utils/route/app_routes.dart';
 import 'package:app/core/utils/theme/app_theme.dart';
 import 'package:app/features/auth/repositories/auth_repository.dart';
 import 'package:app/features/login/cubit/login_cubit.dart';
+import 'package:app/features/sensors/cubit/telemetry_cubit.dart';
+import 'package:app/features/sensors/repositories/sensors_repository.dart';
+import 'package:app/features/alerts/cubit/alert_cubit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -80,15 +83,53 @@ class MyApp extends StatelessWidget {
     // Wire the global 401 session-expired handler
     AppRouter.initSessionExpiredHandler();
 
-    return BlocProvider.value(
-      value: loginCubit,
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'Industrial Monitoring App',
-        theme: AppTheme.primary,
-        onGenerateRoute: AppRouter.onGenerateRoute,
-        initialRoute: initialRoute,
-        navigatorKey: AppRouter.navigatorKey,
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider<LoginCubit>.value(value: loginCubit),
+
+        BlocProvider<TelemetryCubit>(
+          create: (_) => TelemetryCubit(),
+          lazy: false,
+        ),
+
+        // Must come after TelemetryCubit — it reads it via context.read<TelemetryCubit>()
+        BlocProvider<AlertCubit>(
+          create: (context) => AlertCubit(
+            telemetryCubit: context.read<TelemetryCubit>(),
+            sensorsRepository: SensorsRepository(),
+          ),
+          lazy: false,
+        ),
+      ],
+      child: Builder(
+        builder: (context) {
+          // Connect telemetry once we have a valid session — covers both
+          // the auto-login path (initialRoute == navbar, session already
+          // valid at startup) and any future fresh login.
+          if (apiClient.sessionId != null && initialRoute == AppRoutes.navbar) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              context.read<TelemetryCubit>().connect(apiClient.sessionId!);
+            });
+          }
+
+          return BlocListener<LoginCubit, LoginState>(
+            listener: (context, state) {
+              if (state is LoginSuccess) {
+                context.read<TelemetryCubit>().connect(
+                  state.loginResponse.sessionId,
+                );
+              }
+            },
+            child: MaterialApp(
+              debugShowCheckedModeBanner: false,
+              title: 'Industrial Monitoring App',
+              theme: AppTheme.primary,
+              onGenerateRoute: AppRouter.onGenerateRoute,
+              initialRoute: initialRoute,
+              navigatorKey: AppRouter.navigatorKey,
+            ),
+          );
+        },
       ),
     );
   }

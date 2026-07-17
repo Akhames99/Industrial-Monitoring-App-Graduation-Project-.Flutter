@@ -15,34 +15,27 @@ class _QualityLogPageState extends State<QualityLogPage> {
   QualityLogContainer? qualityLogData;
   QualityItemStatus? selectedFilter;
   QualityReviewCategory? selectedReviewCategory;
-  int currentPage = 1;
+  bool isLoading = false;
 
   @override
   void initState() {
     super.initState();
     // Default mode: pending inspections.
     selectedFilter = QualityItemStatus.pending;
-    _initializeQualityLog();
-  }
-
-  Future<void> _initializeQualityLog() async {
-    await _loadData();
+    _loadData();
   }
 
   Future<void> _loadData() async {
+    setState(() => isLoading = true);
     try {
       final data = await QualityLogService().fetchQualityLog(
         filterByStatus: selectedFilter,
+        reviewCategory: selectedReviewCategory,
       );
-      debugPrint('=== QUALITY ITEMS ===');
-      for (final item in data.items) {
-        debugPrint(
-          'ID: ${item.id} | imageUrl: ${item.imageUrl} | rawStatus: ${item.rawStatus}',
-        );
-      }
       if (mounted) {
         setState(() {
           qualityLogData = data;
+          isLoading = false;
         });
       }
     } catch (e) {
@@ -55,6 +48,7 @@ class _QualityLogPageState extends State<QualityLogPage> {
             pendingCount: 0,
             reviewedCount: 0,
           );
+          isLoading = false;
         });
       }
     }
@@ -67,7 +61,6 @@ class _QualityLogPageState extends State<QualityLogPage> {
       // Leaving/entering the Reviewed tab resets the Good/Defected/Invalid
       // sub-filter.
       selectedReviewCategory = null;
-      currentPage = 1;
     });
     _loadData();
   }
@@ -76,38 +69,10 @@ class _QualityLogPageState extends State<QualityLogPage> {
     if (selectedReviewCategory == category) return;
     setState(() {
       selectedReviewCategory = category;
-      currentPage = 1;
     });
-  }
-
-  List<QualityItem> _getFilteredItems() {
-    if (qualityLogData == null) return [];
-
-    var items = qualityLogData!.items;
-
-    if (selectedFilter != null) {
-      items = items.where((item) => item.status == selectedFilter).toList();
-    }
-
-    // Good / Defected / Invalid sub-filter only applies within Reviewed.
-    if (selectedFilter == QualityItemStatus.reviewed &&
-        selectedReviewCategory != null) {
-      items = items
-          .where((item) => item.reviewCategory == selectedReviewCategory)
-          .toList();
-    }
-
-    return items;
-  }
-
-  void _goToPage(int page) {
-    final filteredItems = _getFilteredItems();
-    final maxPage = (filteredItems.length / 4).ceil();
-    if (page >= 1 && page <= maxPage) {
-      setState(() {
-        currentPage = page;
-      });
-    }
+    // Hits the backend with status_filter instead of re-slicing whatever
+    // was already fetched.
+    _loadData();
   }
 
   void _handleRelabel(String itemId, String newLabel) async {
@@ -118,7 +83,6 @@ class _QualityLogPageState extends State<QualityLogPage> {
       // moves the item from Pending to Reviewed. Refetch instead of
       // patching local state so tab membership and counts reflect what
       // the server actually did.
-      currentPage = 1;
       await _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -147,7 +111,9 @@ class _QualityLogPageState extends State<QualityLogPage> {
     final success = await QualityLogService().confirmInspection(itemId);
 
     if (success) {
-      _updateItemStatus(itemId, QualityItemStatus.reviewed, isConfirmed: true);
+      // Confirming also moves the item from Pending to Reviewed server-side,
+      // so refetch rather than patch local state.
+      await _loadData();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -185,7 +151,6 @@ class _QualityLogPageState extends State<QualityLogPage> {
     );
 
     if (success) {
-      currentPage = 1;
       await _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -208,58 +173,6 @@ class _QualityLogPageState extends State<QualityLogPage> {
     }
   }
 
-  void _updateItemStatus(
-    String itemId,
-    QualityItemStatus newStatus, {
-    bool? isConfirmed,
-    String? defectCategory,
-    String? rawStatus,
-  }) {
-    if (qualityLogData != null) {
-      final itemIndex = qualityLogData!.items.indexWhere(
-        (item) => item.id == itemId,
-      );
-      if (itemIndex == -1) return;
-      final oldStatus = qualityLogData!.items[itemIndex].status;
-
-      final updatedItems = qualityLogData!.items.map((item) {
-        if (item.id == itemId) {
-          return item.copyWith(
-            status: newStatus,
-            isConfirmed: isConfirmed ?? item.isConfirmed,
-            defectCategory: defectCategory ?? item.defectCategory,
-            rawStatus: rawStatus ?? item.rawStatus,
-          );
-        }
-        return item;
-      }).toList();
-
-      int pendingDelta = 0;
-      int reviewedDelta = 0;
-      if (oldStatus != newStatus) {
-        if (oldStatus == QualityItemStatus.pending) {
-          pendingDelta = -1;
-        } else if (oldStatus == QualityItemStatus.reviewed) {
-          reviewedDelta = -1;
-        }
-
-        if (newStatus == QualityItemStatus.pending) {
-          pendingDelta += 1;
-        } else if (newStatus == QualityItemStatus.reviewed) {
-          reviewedDelta += 1;
-        }
-      }
-
-      setState(() {
-        qualityLogData = qualityLogData!.copyWith(
-          items: updatedItems,
-          pendingCount: qualityLogData!.pendingCount + pendingDelta,
-          reviewedCount: qualityLogData!.reviewedCount + reviewedDelta,
-        );
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (qualityLogData == null) {
@@ -269,12 +182,9 @@ class _QualityLogPageState extends State<QualityLogPage> {
       );
     }
 
-    final filteredItems = _getFilteredItems();
-    final maxPage = (filteredItems.length / 4).ceil();
-    final currentItems = filteredItems
-        .skip((currentPage - 1) * 4)
-        .take(4)
-        .toList();
+    // The backend no longer paginates — it returns the full pending or
+    // reviewed list in one response, so we just render everything we got.
+    final currentItems = qualityLogData!.items;
 
     return Scaffold(
       backgroundColor: AppColors.primary,
@@ -294,46 +204,58 @@ class _QualityLogPageState extends State<QualityLogPage> {
               const SizedBox(height: 16.0),
               Expanded(
                 child: RefreshIndicator(
-                  onRefresh: _initializeQualityLog,
-                  child: currentItems.isEmpty
-                      ? ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          children: [
-                            SizedBox(
-                              height: MediaQuery.of(context).size.height * 0.5,
-                              child: Center(
-                                child: Text(
-                                  'No items found',
-                                  style: TextStyle(color: Colors.grey[600]),
+                  onRefresh: _loadData,
+                  child: Stack(
+                    children: [
+                      currentItems.isEmpty
+                          ? ListView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              children: [
+                                SizedBox(
+                                  height:
+                                      MediaQuery.of(context).size.height * 0.5,
+                                  child: Center(
+                                    child: Text(
+                                      'No items found',
+                                      style: TextStyle(color: Colors.grey[600]),
+                                    ),
+                                  ),
                                 ),
+                              ],
+                            )
+                          : ListView.builder(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              itemCount: currentItems.length,
+                              itemBuilder: (context, index) {
+                                return Column(
+                                  children: [
+                                    QualityItemCard(
+                                      item: currentItems[index],
+                                      onConfirm: (id) => _handleConfirm(id),
+                                      onRelabel: _handleRelabel,
+                                      onEdit: _handleEdit,
+                                    ),
+                                    if (index < currentItems.length - 1)
+                                      const SizedBox(height: 16),
+                                  ],
+                                );
+                              },
+                            ),
+                      if (isLoading)
+                        Positioned.fill(
+                          child: Container(
+                            color: Colors.black.withOpacity(0.05),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: Colors.blue[600],
                               ),
                             ),
-                          ],
-                        )
-                      : ListView.builder(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          itemCount: currentItems.length,
-                          itemBuilder: (context, index) {
-                            return Column(
-                              children: [
-                                QualityItemCard(
-                                  item: currentItems[index],
-                                  onConfirm: (id) => _handleConfirm(id),
-                                  onRelabel: _handleRelabel,
-                                  onEdit: _handleEdit,
-                                ),
-                                if (index < currentItems.length - 1)
-                                  const SizedBox(height: 16),
-                              ],
-                            );
-                          },
+                          ),
                         ),
+                    ],
+                  ),
                 ),
               ),
-
-              const SizedBox(height: 24),
-
-              if (maxPage > 1) _buildPagination(maxPage),
               const SizedBox(height: 16),
             ],
           ),
@@ -521,105 +443,9 @@ class _QualityLogPageState extends State<QualityLogPage> {
       ),
     );
   }
-
-  Widget _buildPagination(int maxPage) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        GestureDetector(
-          onTap: currentPage > 1 ? () => _goToPage(currentPage - 1) : null,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            decoration: BoxDecoration(
-              color: currentPage > 1 ? Colors.white : Colors.grey[200],
-              border: Border.all(color: Colors.grey[300]!),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              'Prev',
-              style: TextStyle(
-                fontSize: 12,
-                color: currentPage > 1 ? Colors.grey[700] : Colors.grey[400],
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: List.generate(maxPage, (index) {
-                final pageNum = index + 1;
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    GestureDetector(
-                      onTap: () => _goToPage(pageNum),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: currentPage == pageNum
-                              ? Colors.blue[600]
-                              : Colors.white,
-                          border: Border.all(
-                            color: currentPage == pageNum
-                                ? Colors.blue[600]!
-                                : Colors.grey[300]!,
-                          ),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          pageNum.toString(),
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: currentPage == pageNum
-                                ? Colors.white
-                                : Colors.grey[700],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                );
-              }),
-            ),
-          ),
-        ),
-        GestureDetector(
-          onTap: currentPage < maxPage
-              ? () => _goToPage(currentPage + 1)
-              : null,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            decoration: BoxDecoration(
-              color: currentPage < maxPage ? Colors.white : Colors.grey[200],
-              border: Border.all(color: Colors.grey[300]!),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              'Next',
-              style: TextStyle(
-                fontSize: 12,
-                color: currentPage < maxPage
-                    ? Colors.grey[700]
-                    : Colors.grey[400],
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 }
 
-// Quality Item Card Widget
+// Quality Item Card Widget — unchanged from your original file.
 class QualityItemCard extends StatelessWidget {
   final QualityItem item;
   final Function(String)? onConfirm;
@@ -1014,7 +840,7 @@ class QualityItemCard extends StatelessWidget {
     if (difference.inMinutes < 60) {
       return '${difference.inMinutes}m ago';
     } else if (difference.inHours < 24) {
-      return '${difference.inHours}h ago';
+      return '${difference.inDays}d ago';
     } else {
       return '${difference.inDays}d ago';
     }

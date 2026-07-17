@@ -269,10 +269,6 @@ class _ControlPageState extends State<ControlPage> {
         data: {'command': command},
       );
       if (response.statusCode == 200) {
-        // Optimistically reflect the command immediately — telemetry
-        // (plc_logical_state) can lag several seconds behind the actual
-        // command due to the MQTT → PLC → subscriber → Influx round trip.
-        // The periodic 5s poll will reconcile with real telemetry shortly after.
         final isNowRunning = command == 'START';
         setState(() {
           controlState = controlState.copyWith(
@@ -280,8 +276,15 @@ class _ControlPageState extends State<ControlPage> {
             sessionStartTime: isNowRunning ? DateTime.now() : null,
             clearSessionStartTime: !isNowRunning,
           );
+          _isCommandLoading =
+              false; // release the button right after the optimistic update
         });
-        await _fetchMachineStatus();
+
+        // Don't await — let this reconcile with real telemetry in the
+        // background. The periodic 5s timer will also catch up shortly
+        // regardless, so this is just for a slightly faster confirmation.
+        unawaited(_fetchMachineStatus());
+        return;
       } else {
         setState(() {
           _errorMessage =

@@ -1,6 +1,8 @@
 import 'package:app/core/utils/route/app_routes.dart';
 import 'package:app/core/utils/theme/app_colors.dart';
+import 'package:app/features/alerts/cubit/alert_cubit.dart';
 import 'package:app/features/home/bloc/home_bloc.dart';
+import 'package:app/features/home/views/models/active_alerts_model.dart';
 import 'package:app/features/home/widgets/active_alerts_widget.dart';
 import 'package:app/features/home/widgets/defect_categorizaition_widget.dart';
 import 'package:app/features/home/widgets/system_state_widget.dart';
@@ -224,12 +226,17 @@ class _HomePageState extends State<HomePage> {
                     },
                   ),
                   const SizedBox(height: 24.0),
-                  BlocBuilder<HomeBloc, HomeState>(
+                  BlocBuilder<AlertCubit, AlertState>(
                     builder: (context, state) {
+                      final alerts = state is AlertLoaded
+                          ? state.alerts
+                          : <Alert>[];
                       return ActiveAlertsWidget(
-                        alerts: state.alerts,
-                        onAlertAcknowledged: _onAlertAcknowledged,
-                        onAlertDismissed: _onAlertDismissed,
+                        alerts: alerts,
+                        onAlertAcknowledged: (id) =>
+                            context.read<AlertCubit>().acknowledgeAlert(id),
+                        onAlertDismissed: (id) =>
+                            context.read<AlertCubit>().dismissAlert(id),
                       );
                     },
                   ),

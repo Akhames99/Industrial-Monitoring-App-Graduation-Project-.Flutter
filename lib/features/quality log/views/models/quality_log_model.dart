@@ -218,60 +218,53 @@ class QualityItem {
 
 // ─────────────────────────────────────────────
 // QualityLogContainer
+//
+// NOTE: Pagination has been removed to match the backend, which now
+// returns the full pending/reviewed lists in a single response with no
+// limit/offset. The old page-based fields (itemsPerPage, currentPage,
+// serverTotalPages, hasNext, hasPrevious, totalPages, getItemsForPage)
+// are gone — the UI should render `items` directly (e.g. in a ListView),
+// not slice it into pages.
 // ─────────────────────────────────────────────
 
 class QualityLogContainer {
   final List<QualityItem> items;
   final DateTime lastUpdated;
-  final int currentPage;
-  final int itemsPerPage;
   final int pendingCount;
   final int reviewedCount;
 
   QualityLogContainer({
     required this.items,
     required this.lastUpdated,
-    this.currentPage = 1,
-    this.itemsPerPage = 4,
     this.pendingCount = 0,
     this.reviewedCount = 0,
   });
 
-  int get totalItems => items.length;
-  int get totalPages => (items.length / itemsPerPage).ceil();
-
-  List<QualityItem> get pendingItems =>
-      items.where((i) => i.status == QualityItemStatus.pending).toList();
-  List<QualityItem> get reviewedItems =>
-      items.where((i) => i.status == QualityItemStatus.reviewed).toList();
-
-  /// Reviewed items bucketed into Good / Defected / Invalid.
-  List<QualityItem> reviewedItemsByCategory(QualityReviewCategory category) =>
-      reviewedItems.where((i) => i.reviewCategory == category).toList();
-
-  List<QualityItem> getItemsForPage(int page) {
-    final start = (page - 1) * itemsPerPage;
-    final end = (start + itemsPerPage).clamp(0, items.length);
-    return items.sublist(start, end);
-  }
-
   QualityLogContainer copyWith({
     List<QualityItem>? items,
     DateTime? lastUpdated,
-    int? currentPage,
-    int? itemsPerPage,
     int? pendingCount,
     int? reviewedCount,
   }) {
     return QualityLogContainer(
       items: items ?? this.items,
       lastUpdated: lastUpdated ?? this.lastUpdated,
-      currentPage: currentPage ?? this.currentPage,
-      itemsPerPage: itemsPerPage ?? this.itemsPerPage,
       pendingCount: pendingCount ?? this.pendingCount,
       reviewedCount: reviewedCount ?? this.reviewedCount,
     );
   }
+
+  int get totalItems => items.length;
+
+  List<QualityItem> get pendingItems =>
+      items.where((i) => i.status == QualityItemStatus.pending).toList();
+
+  List<QualityItem> get reviewedItems =>
+      items.where((i) => i.status == QualityItemStatus.reviewed).toList();
+
+  /// Reviewed items bucketed into Good / Defected / Invalid.
+  List<QualityItem> reviewedItemsByCategory(QualityReviewCategory category) =>
+      reviewedItems.where((i) => i.reviewCategory == category).toList();
 }
 
 // ─────────────────────────────────────────────
@@ -283,13 +276,15 @@ class QualityLogService {
 
   Future<QualityLogContainer> fetchQualityLog({
     QualityItemStatus? filterByStatus,
-    int page = 1,
+    QualityReviewCategory? reviewCategory,
   }) async {
     final results = await Future.wait<Object>([
       _repository.getQualityItems(
-        page: page,
-        pageSize: 100,
-        status: filterByStatus?.name, // "pending" | "reviewed" | null
+        status: filterByStatus?.name,
+        reviewStatus: reviewCategory == null
+            ? null
+            : reviewCategory.name[0].toUpperCase() +
+                  reviewCategory.name.substring(1),
       ),
       _repository.getQualityCounts(),
     ]);
@@ -299,6 +294,9 @@ class QualityLogService {
     final items = response.items.map((item) {
       var q = QualityItem.fromResponse(item);
       if (filterByStatus == QualityItemStatus.pending) {
+        q = q.copyWith(status: QualityItemStatus.pending);
+      } else if (filterByStatus == null &&
+          response.pendingItemIds.contains(item.id)) {
         q = q.copyWith(status: QualityItemStatus.pending);
       }
       if (q.imageUrl != null && !q.imageUrl!.startsWith('http')) {

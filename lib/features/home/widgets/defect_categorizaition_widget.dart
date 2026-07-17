@@ -219,7 +219,7 @@ class DefectionCategorizationExample extends StatelessWidget {
           color: const Color(0xFFFF6B6B),
         ),
         DefectCategory(
-          name: 'No_detection',
+          name: 'Invalid',
           count: 12,
           color: const Color(0xFF4ECDC4),
         ),

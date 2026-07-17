@@ -260,36 +260,43 @@ class HomeRepository {
           'Crooked_cap': 0,
           'Empty_bottle': 0,
           'No_label': 0,
-          'No_detection': 0,
+          'Invalid': 0,
         };
 
         int totalDefects = 0;
 
         for (var item in inspections) {
-          if (item.status.toLowerCase() != 'good') {
+          final status = item.status.toLowerCase();
+
+          if (status == 'good') continue;
+
+          if (status == 'invalid') {
+            categoryCounts['Invalid'] = (categoryCounts['Invalid'] ?? 0) + 1;
             totalDefects++;
-
-            // Priority: defectCategory -> title -> 'No_detection' (default)
-            final category = (item.defectCategory ?? item.title).toLowerCase();
-
-            if (category.contains('no_cap') || category.contains('nocap'))
-              categoryCounts['No_cap'] = (categoryCounts['No_cap'] ?? 0) + 1;
-            else if (category.contains('crooked_cap') ||
-                category.contains('crookedcap'))
-              categoryCounts['Crooked_cap'] =
-                  (categoryCounts['Crooked_cap'] ?? 0) + 1;
-            else if (category.contains('empty_bottle') ||
-                category.contains('emptybottle'))
-              categoryCounts['Empty_bottle'] =
-                  (categoryCounts['Empty_bottle'] ?? 0) + 1;
-            else if (category.contains('no_label') ||
-                category.contains('nolabel'))
-              categoryCounts['No_label'] =
-                  (categoryCounts['No_label'] ?? 0) + 1;
-            else
-              categoryCounts['No_detection'] =
-                  (categoryCounts['No_detection'] ?? 0) + 1;
+            continue;
           }
+
+          totalDefects++;
+
+          final category = (item.defectCategory ?? item.title ?? '')
+              .toLowerCase();
+
+          if (category.contains('no_cap') || category.contains('nocap')) {
+            categoryCounts['No_cap'] = (categoryCounts['No_cap'] ?? 0) + 1;
+          } else if (category.contains('crooked_cap') ||
+              category.contains('crookedcap')) {
+            categoryCounts['Crooked_cap'] =
+                (categoryCounts['Crooked_cap'] ?? 0) + 1;
+          } else if (category.contains('empty_bottle') ||
+              category.contains('emptybottle')) {
+            categoryCounts['Empty_bottle'] =
+                (categoryCounts['Empty_bottle'] ?? 0) + 1;
+          } else if (category.contains('no_label') ||
+              category.contains('nolabel')) {
+            categoryCounts['No_label'] = (categoryCounts['No_label'] ?? 0) + 1;
+          }
+          // any item whose category didn't match any known defect type is simply
+          // not counted anywhere now, since No_detection is no longer shown
         }
 
         final List<DefectCategoryResponse> categories = [];

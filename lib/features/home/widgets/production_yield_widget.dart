@@ -128,13 +128,13 @@ class _ProductionYieldWidgetState extends State<ProductionYieldWidget> {
                 label: 'Good',
                 value: widget.data.goodProducts,
               ),
-              const SizedBox(width: 20),
+              const SizedBox(width: 16),
               _buildStatItem(
                 color: const Color(0xFF1A1A2E),
                 label: 'Defected',
                 value: widget.data.defectiveProducts,
               ),
-              const SizedBox(width: 20),
+              const SizedBox(width: 16),
               _buildStatItem(
                 color: const Color(0xFFFFB84D),
                 label: 'Invalid',

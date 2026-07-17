@@ -6,34 +6,17 @@ import 'package:flutter/material.dart';
 class QualityLogRepository {
   final ApiClient _apiClient = ApiClient();
 
-  // "All" isn't backed by its own endpoint — it's the union of pending +
-  // reviewed. This is how many items we pull from each side when building
-  // that union. Client-side pagination (4/page) happens further up in
-  // QualityLogPage, so this just needs to be big enough to cover realistic
-  // totals without a dedicated combined endpoint.
-  static const int _allTabFetchSize = 100;
-
   Future<int> _getTotalCount(String endpoint) async {
-    final response = await _apiClient.get(
-      endpoint,
-      queryParameters: {'page': 1, 'size': 1},
-    );
-
+    final response = await _apiClient.get(endpoint);
     if (response.statusCode != 200 || response.data == null) {
       throw ApiException(
         message: 'Failed to fetch inspection count',
         statusCode: response.statusCode,
       );
     }
-
-    final dataMap = response.data as Map<String, dynamic>;
-    final meta = dataMap['meta'] as Map<String, dynamic>?;
-    if (meta != null && meta['total_count'] is num) {
-      return (meta['total_count'] as num).toInt();
-    }
-
-    final data = dataMap['data'];
-    return data is List ? data.length : 0;
+    // Backend now returns a raw list, not {data, meta} — length IS the count.
+    final list = response.data as List;
+    return list.length;
   }
 
   Future<({int pendingCount, int reviewedCount})> getQualityCounts() async {
@@ -41,92 +24,62 @@ class QualityLogRepository {
       _getTotalCount(Endpoints.pendingReviewInspections),
       _getTotalCount(Endpoints.reviewedInspections),
     ]);
-
     return (pendingCount: counts[0], reviewedCount: counts[1]);
   }
 
-  /// Fetch quality items.
-  ///
-  /// Strategy:
-  /// - status == "pending"  → GET /inspections/pending-review (paginated, has images)
-  /// - status == "reviewed" → GET /inspections/reviewed (paginated)
-  /// - status == null       → GET both endpoints concurrently and merge
-  ///                           ("All" = union of pending + reviewed, since
-  ///                           there's no single backend endpoint for it)
+  /// Fetches ALL items matching `status` — the backend no longer paginates,
+  /// so this always returns the full set. Pagination now happens entirely
+  /// client-side in QualityLogContainer.
   Future<QualityItemsListResponse> getQualityItems({
-    int page = 1,
-    int pageSize = 10,
     String? status,
+    String? reviewStatus, // Good/Defected/Invalid — only used for 'reviewed'
   }) async {
     try {
-      final List<QualityItemResponse> items;
-      int total = 0;
-      int? pendingCountOverride;
-      int? reviewedCountOverride;
+      List<QualityItemResponse> allItems;
+      Set<String> pendingSourceIds = {};
 
       if (status != null && status.toLowerCase() == 'pending') {
-        // ── Pending: use the dedicated paginated endpoint ──────────────────
         final response = await _apiClient.get(
           Endpoints.pendingReviewInspections,
-          queryParameters: {'page': page, 'size': pageSize},
         );
-
         if (response.statusCode != 200 || response.data == null) {
           throw ApiException(
             message: 'Failed to fetch pending inspections',
             statusCode: response.statusCode,
           );
         }
-
-        final dataMap = response.data as Map<String, dynamic>;
-        final list = dataMap['data'] as List;
-        items = list.map((item) {
-          final json = Map<String, dynamic>.from(item as Map);
-          return QualityItemResponse.fromJson(json);
-        }).toList();
-
-        final meta = dataMap['meta'] as Map<String, dynamic>?;
-        total = meta != null
-            ? (meta['total_count'] as num).toInt()
-            : items.length;
+        final list = response.data as List; // ← raw list now, not a Map
+        allItems = list
+            .map(
+              (item) =>
+                  QualityItemResponse.fromJson(item as Map<String, dynamic>),
+            )
+            .toList();
       } else if (status != null && status.toLowerCase() == 'reviewed') {
-        // ── Reviewed: use the dedicated paginated endpoint ─────────────────
         final response = await _apiClient.get(
           Endpoints.reviewedInspections,
-          queryParameters: {'page': page, 'size': pageSize},
+          queryParameters: {
+            if (reviewStatus != null) 'status_filter': reviewStatus,
+          },
         );
-
         if (response.statusCode != 200 || response.data == null) {
           throw ApiException(
             message: 'Failed to fetch reviewed inspections',
             statusCode: response.statusCode,
           );
         }
-
-        final dataMap = response.data as Map<String, dynamic>;
-        final list = dataMap['data'] as List;
-        items = list
+        final list = response.data as List;
+        allItems = list
             .map(
               (item) =>
                   QualityItemResponse.fromJson(item as Map<String, dynamic>),
             )
             .toList();
-
-        final meta = dataMap['meta'] as Map<String, dynamic>?;
-        total = meta != null
-            ? (meta['total_count'] as num).toInt()
-            : items.length;
       } else {
-        // ── All: union of pending-review + reviewed, fetched concurrently ──
+        // All: union of both full lists.
         final responses = await Future.wait([
-          _apiClient.get(
-            Endpoints.pendingReviewInspections,
-            queryParameters: {'page': 1, 'size': _allTabFetchSize},
-          ),
-          _apiClient.get(
-            Endpoints.reviewedInspections,
-            queryParameters: {'page': 1, 'size': _allTabFetchSize},
-          ),
+          _apiClient.get(Endpoints.pendingReviewInspections),
+          _apiClient.get(Endpoints.reviewedInspections),
         ]);
 
         final pendingResponse = responses[0];
@@ -146,21 +99,15 @@ class QualityLogRepository {
           );
         }
 
-        final pendingMap = pendingResponse.data as Map<String, dynamic>;
-        final reviewedMap = reviewedResponse.data as Map<String, dynamic>;
+        final pendingList = pendingResponse.data as List;
+        final reviewedList = reviewedResponse.data as List;
 
-        final pendingList = pendingMap['data'] as List;
-        final reviewedList = reviewedMap['data'] as List;
-
-        // Same tagging the dedicated pending branch does — the
-        // pending-review endpoint doesn't include a status field itself,
-        // so it has to be stamped on client-side.
-        final pendingItems = pendingList.map((item) {
-          final json = Map<String, dynamic>.from(item as Map);
-          json['status'] = 'pending';
-          return QualityItemResponse.fromJson(json);
-        }).toList();
-
+        final pendingItems = pendingList
+            .map(
+              (item) =>
+                  QualityItemResponse.fromJson(item as Map<String, dynamic>),
+            )
+            .toList();
         final reviewedItems = reviewedList
             .map(
               (item) =>
@@ -168,51 +115,37 @@ class QualityLogRepository {
             )
             .toList();
 
-        items = [...pendingItems, ...reviewedItems];
-
-        final pendingMeta = pendingMap['meta'] as Map<String, dynamic>?;
-        final reviewedMeta = reviewedMap['meta'] as Map<String, dynamic>?;
-
-        // Use the real backend totals (not just this batch's length) so the
-        // header counts stay accurate even if either list exceeds
-        // _allTabFetchSize.
-        pendingCountOverride = pendingMeta != null
-            ? (pendingMeta['total_count'] as num).toInt()
-            : pendingItems.length;
-        reviewedCountOverride = reviewedMeta != null
-            ? (reviewedMeta['total_count'] as num).toInt()
-            : reviewedItems.length;
-
-        total = pendingCountOverride + reviewedCountOverride;
+        // Do NOT stamp status here — keep it non-destructive (fixed earlier
+        // for the "unknown_defect" bug). Track ids instead so the service
+        // layer can bucket these as Pending without touching the real
+        // Good/Defected/Invalid classification.
+        pendingSourceIds = pendingItems.map((e) => e.id).toSet();
+        allItems = [...pendingItems, ...reviewedItems];
       }
 
+      // Normalize ordering: backend sorts pending oldest-first and
+      // reviewed newest-first — always show newest-first regardless of tab.
+      allItems.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      final total = allItems.length;
       final isPendingRequest =
           status != null && status.toLowerCase() == 'pending';
       final isReviewedRequest =
           status != null && status.toLowerCase() == 'reviewed';
 
-      final pendingCount =
-          pendingCountOverride ??
-          (isPendingRequest
-              ? total
-              : items.where((i) => i.status.toLowerCase() == 'pending').length);
-      final reviewedCount =
-          reviewedCountOverride ??
-          (isReviewedRequest
-              ? total
-              : items
-                    .where(
-                      (i) =>
-                          i.status.toLowerCase() != 'pending' &&
-                          i.status.toLowerCase() != 'uploading_in_background',
-                    )
-                    .length);
+      final pendingCount = isPendingRequest
+          ? total
+          : (isReviewedRequest ? 0 : pendingSourceIds.length);
+      final reviewedCount = isReviewedRequest
+          ? total
+          : (isPendingRequest ? 0 : total - pendingSourceIds.length);
 
       return QualityItemsListResponse(
-        items: items,
+        items: allItems,
         total: total,
         pendingCount: pendingCount,
         reviewedCount: reviewedCount,
+        pendingItemIds: pendingSourceIds,
       );
     } catch (e) {
       if (e is ApiException) rethrow;
@@ -220,7 +153,10 @@ class QualityLogRepository {
     }
   }
 
-  /// Confirm inspection as-is (moves image to its current category folder).
+  /// Confirm inspection: moves the image to its permanent Cloudinary
+  /// category folder and stamps user_id server-side, which is what moves
+  /// the item from Pending to Reviewed.
+  /// Maps to PUT /inspections/{id}/confirm
   Future<bool> confirmInspection(String inspectionId) async {
     try {
       final endpoint = Endpoints.confirmInspection.replaceAll(
@@ -229,10 +165,10 @@ class QualityLogRepository {
       );
       final response = await _apiClient.put(endpoint);
       debugPrint(
-        '[confirmInspection] PUT $endpoint (session=${_apiClient.sessionId}) '
-        '→ status=${response.statusCode}, body=${response.data}',
-      ); // temp debug
-      return response.statusCode == 200 || response.statusCode == 201;
+        '[confirmInspection] PUT $endpoint → '
+        'status=${response.statusCode}, body=${response.data}',
+      );
+      return response.statusCode == 200;
     } catch (e) {
       if (e is ApiException) rethrow;
       throw ApiException(message: 'Error confirming inspection: $e');
